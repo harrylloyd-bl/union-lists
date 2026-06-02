@@ -202,11 +202,14 @@ if __name__ == "__main__":
     for file_id, df in dfs.items():
         print(file_id)
         entries = []
-        if df.columns == ['Post-1905_1', 'Post-1905_2', '1886-1905_1', '1886-1905_2', 'Pre-1886_1', 'Pre-1886_2']:
+        if df.columns.equals(pd.Index(['Post-1905_1', 'Post-1905_2', '1886-1905_1', '1886-1905_2', 'Pre-1886_1', 'Pre-1886_2'])):
             [entries.extend(process_6col_row(row[1], source=file_id, scale="Half Inch", metadata=metadatas[file_id])) for row in df.iterrows()];
             entry_df = pd.concat([pd.DataFrame(x, index=[0]) for x in entries]).reset_index(drop=True)
             entry_dfs[file_id] = entry_df
-        elif df.columns == ["Post-1905_1", "metadata"]:
+    
+    for file_id, df in dfs.items():
+        if "Y" in file_id and df.columns.equals(pd.Index(["Post-1905_1", "metadata"])):
             [process_2col_row(row[1], source=file_id, scale="Half Inch") for row in df.iterrows()];
 
-
+    combined_df = pd.concat([df for df in entry_dfs.values()])
+    combined_df.to_csv("data/processed/v0.5_sample.csv", index=False)
