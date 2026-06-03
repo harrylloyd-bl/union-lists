@@ -1,0 +1,14 @@
+Design decisions
+
+- All locations are UGF, the Section/Detail to be added cross-referencing other sources at a later date
+- All references contain "X/"
+- All references produce a separate row in the data format
+- Time period is set by the period a reference comes from
+- If the final part of a reference contains multiple dates separated by a "/" then the second date is taken as the print year and this text is added to Notes: "Print Date: {year}. Reference in source {source} indicates earlier Edition Date: {reference}"
+- The first date will be kept in Edition Year for now so that I can use it to reconstruct full references easily
+- Any line after a reference that does not contain "X/" is a note about the preceding reference and the following text is added to Notes: f"Reference coverage note: {reference}\n"
+- Allow repeat X nums + print dates - this is ok if include post-1905 block number/letter/sheet ID as part of the unique key. this is a bit of a fudge for now as really x num + print date should be the only primary key and should find a way to allow one 1886-1905 x num to relate to multiple post1905 block number/letter/sheet id
+- Check related references as a group, rather than checking that the related references are also in the right time period column. Don't think there's a way for me to work out just by looking at a reference what time period it should be in from the print date
+- Replace all double spaces between refs and dates with single spaces
+- 35B.docx has some double references e.g. X/9935/2/378+379 1894/1909, treat these as one.
+- References with multiple '+' are also treated as a single reference rather than split into multiple e.g. X/9884/2/3+4+10+11
