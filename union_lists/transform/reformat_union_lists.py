@@ -52,7 +52,6 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         "1886-1905 Old Sheet ID": None,
         "Pre-1886 New Sheet ID": None,
         "Pre-1886 Old Sheet ID": None,
-        "Related Sheet": None,
         "Sheet Title": None,
         "Edition Number": None,
         "Edition Date": None,
