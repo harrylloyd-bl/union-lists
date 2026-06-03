@@ -126,7 +126,7 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         entries.append(entry)
         return entries
     
-    time_period = {"Post-1905": "1905>", "1886-1905": "1886-1905", "Pre-1886": "<1886"}
+    time_period = {"Post-1905": ">1905", "1886-1905": "1886-1905", "Pre-1886": "<1886"}
     for ref, period in references.items():
         entry = deepcopy(entry_template)
         entry["Time Period"] = time_period[period]
