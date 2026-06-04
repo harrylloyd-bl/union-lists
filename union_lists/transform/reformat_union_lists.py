@@ -1,3 +1,4 @@
+from multiprocessing import Value
 from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime
@@ -12,6 +13,34 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename=f"logs/{datetime.now().strftime("%Y%m%d_%H%M")}_main.log", level=logging.INFO)
+
+
+def fix_data_errors(input_df_dict: dict[str, pd.DataFrame]) -> None:
+    """Manually fix some errors in the raw documents
+
+    Args:
+        df_dict (dict[str, pd.DataFrame]): Dict of the dataframes extracted from the raw .doc files
+    """
+    if "38B.doc" in dfs:
+        # Y102 38 X9052.doc 38J/SW IOR/X/9052/38J/SW
+        dfs["38B.doc"].loc[37, "Post-1905_2"] = dfs["38B.doc"].loc[37, "Post-1905_2"].replace("NW", "SW")
+
+        # Y102 38 X9052.doc 38 P SE IOR/X/9052/38P/SE
+        dfs["38B.doc"].loc[63, "Post-1905_2"] = dfs["38B.doc"].loc[63, "Post-1905_2"].replace("NE", "SE")
+
+    if "Y102 38 X9052.doc" in dfs:
+        # Y102 38 X9052.doc 38S/NW IOR/X/9052/38N/SW
+        dfs["Y102 38 X9052.doc"].loc[84, "metadata"] = dfs["Y102 38 X9052.doc"].loc[84, "metadata"].replace("38S/NW", "38N/SW")
+        dfs["Y102 38 X9052.doc"].loc[85, "metadata"] = dfs["Y102 38 X9052.doc"].loc[85, "metadata"].replace("38S/NW", "38N/SW")
+
+    if "Y102 53 X9052.doc" in dfs:
+        # Y102 53 X9052.doc 53 M SW IOR/X/9052/53M/SW+M/SE
+        dfs["Y102 53 X9052.doc"].loc[69, "metadata"] = dfs["Y102 53 X9052.doc"].loc[69, "metadata"].replace("53M/SW and M/SE", "53M/SW+M/SE")
+
+
+def log_data_errors(output_df_dict: dict[str, pd.DataFrame]) -> None:
+    pass
+
 
 def pre_process_df(df: pd.DataFrame) -> pd.DataFrame:
     # Apply any preprocessing that can be column vectorised before the rows are processed
@@ -72,10 +101,10 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
     
     # Post-1905
     bn, bl = row.loc["Post-1905_1"].split("/")[0][:2], row.loc["Post-1905_1"].split("/")[0][2]
-    si = row.loc["Post-1905_1"].split("/")[1]
+    sid = row.loc["Post-1905_1"].split("/")[1]
     entry_template["Post-1905 Block Number"] = bn
     entry_template["Post-1905 Block Letter"] = bl
-    entry_template["Post-1905 Sheet ID"] = si
+    entry_template["Post-1905 Sheet ID"] = sid
 
     periods = ["Post-1905", "1886-1905", "Pre-1886"]
 
@@ -175,11 +204,77 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         entry["Notes"] = entry["Notes"].strip("\n")
         
         entries.append(entry)
+
+        if "+" in x_num and entry["Time Period"] == ">1905":
+            logging.info(f"creating new entry for reference with plus: {x_num}")
+            plus_bn = x_num[7:9]
+            for part in x_num[9:].split("+"):
+                plus_entry = deepcopy(entry)
+                plus_bl = part.split("/")[0]
+                plus_sid = part.split("/")[1]
+                if plus_bl == bl and plus_sid == sid:
+                    continue
+                else:
+                    plus_entry["Post-1905 Block Number"] = plus_bn
+                    plus_entry["Post-1905 Block Letter"] = plus_bl
+                    plus_entry["Post-1905 Sheet ID"] = plus_sid
+                
+                entries.append(plus_entry)
         
     return entries
 
 
-def process_2col_row(row: pd.Series, source: str, scale: str, target: str, x_series: str) -> None:
+def process_2col_row(row: pd.Series, source: str, target_df: pd.DataFrame) -> None:
+    """Process a 2 column row from a Y series spreadsheet
+    Y series contain extra information about map sheets
+    This function uses that information to enrich existing rows in a dataframe processed from a 6 col spreadsheet
+
+    Args:
+        row (pd.Series): Row from a Y series spreadsheet
+        source (str): The file name of the Y series spreadsheet
+        target_df (pd.DataFrame): The dataframe to update with enriched metadata
+    """
+    if pd.isna(row.loc["Post-1905_1"]) and "not published" in row.loc["metadata"]:
+        block_info = row.loc["metadata"].split()[1]
+        bn, bl = block_info.split("/")[0][:2], block_info.split("/")[0][2]
+        sid = block_info.split("/")[1]
+        
+        not_published_query = f"`Post-1905 Block Number` == '{bn}' and `Post-1905 Block Letter` == '{bl}' and `Post-1905 Sheet ID` == '{sid}'"
+        query_idx = target_df.query(not_published_query).index
+
+        if target_df.query(not_published_query).empty:
+            raise ValueError(f"Queried df for {source} is empty. Query is {not_published_query}")
+        
+        for i in query_idx:
+            target_df.loc[i, "Published"] = "N"
+            target_df.loc[i, "Notes"] += f"\n\nPublication info from {source}: \n{row.loc['metadata']}"
+
+    elif not row.isna().any():
+        if "\n" in row.loc["Post-1905_1"]:
+                row.loc["Post-1905_1"] = "".join([l.strip() for l in row.loc["Post-1905_1"].split("\n")])
+        
+        block_info = row.loc["metadata"].split()[1]
+        
+        if "+" in block_info:
+            bls = [x.split("/")[0] for x in block_info[2:].split("+")]
+            sids = [x.split("/")[1] for x in block_info[2:].split("+")]
+            bns = [block_info[:2] for x in bls]
+            logging.info(f"Y doc ref contains +: block info {block_info}, bns {bns}, bls {bls}, sids {sids}")
+        else:
+            bns, bls = [block_info.split("/")[0][:2]], [block_info.split("/")[0][2]]
+            sids = [block_info.split("/")[1]]
+        
+        for bn, bl, sid in zip(bns, bls, sids):
+            published_query = f"`Post-1905 Block Number` == '{bn}' and `Post-1905 Block Letter` == '{bl}' and `Post-1905 Sheet ID` == '{sid}' and `Full Reference` == 'IOR/{row.loc["Post-1905_1"]}'"
+            query_idx = target_df.query(published_query).index
+            if target_df.query(published_query).empty:
+                logging.info(f"Queried df for {source} is empty. Query is {published_query}")
+                # raise ValueError(f"Queried df for {source} is empty. Query is {published_query}")
+            for i in query_idx:
+                target_df.loc[i, "Notes"] += f"\n\nExtended metadata from {source}: \n{row.loc['metadata']}"
+
+
+def validate_output(output_df):
     pass
 
 
@@ -189,13 +284,15 @@ if __name__ == "__main__":
     metadata_files = glob.glob("data/interim/Half Inch/*.json")
 
     dfs, metadatas = {}, {}
-    for f in csv_files:
+    for f in csv_files[15:16]:
         file_id = os.path.basename(f).split(".")[0] + ".doc"
-        df = pd.read_csv(f, encoding="utf8")
+        df = pd.read_csv(f, encoding="utf8").dropna(how="all")
         with open(f[:-4] + ".json") as g:
             metadata = json.load(g)
         dfs[file_id] = pre_process_df(df)
         metadatas[file_id] = metadata
+
+    fix_data_errors(dfs)
 
     entry_dfs = {}
     for file_id, df in dfs.items():
@@ -209,8 +306,11 @@ if __name__ == "__main__":
     for file_id, df in dfs.items():
         if "Y" in file_id and df.columns.equals(pd.Index(["Post-1905_1", "metadata"])):
             target = file_id.split()[1]
-            x_series = file_id.split(2)
-            [process_2col_row(row[1], source=file_id, scale="Half Inch", target=f"{target}B.doc", x_series=x_series) for row in df.iterrows()]
+            target_df = entry_dfs[target + "B.doc"]
+            [process_2col_row(row=row, source=file_id, target_df=target_df) for (name, row) in df.iterrows()]
 
     combined_df = pd.concat([df for df in entry_dfs.values()])
-    combined_df.to_csv("data/processed/v0.5_sample.csv", index=False)
+    validate_output(combined_df)
+
+    combined_df.to_csv("data/processed/v0.6_sample.csv", encoding="utf-8-sig", index=False)
+    combined_df.to_excel("data/processed/v0.6_sample.xlsx", index=False)
