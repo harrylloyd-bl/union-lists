@@ -21,24 +21,25 @@ def fix_data_errors(input_df_dict: dict[str, pd.DataFrame]) -> None:
     Args:
         df_dict (dict[str, pd.DataFrame]): Dict of the dataframes extracted from the raw .doc files
     """
-    if "38B.doc" in dfs:
+    if "38B.doc" in input_dfs:
         # Y102 38 X9052.doc 38J/SW IOR/X/9052/38J/SW
-        dfs["38B.doc"].loc[37, "Post-1905_2"] = dfs["38B.doc"].loc[37, "Post-1905_2"].replace("NW", "SW")
+        input_dfs["38B.doc"].loc[37, "Post-1905_2"] = input_dfs["38B.doc"].loc[37, "Post-1905_2"].replace("NW", "SW")
 
         # Y102 38 X9052.doc 38 P SE IOR/X/9052/38P/SE
-        dfs["38B.doc"].loc[63, "Post-1905_2"] = dfs["38B.doc"].loc[63, "Post-1905_2"].replace("NE", "SE")
+        input_dfs["38B.doc"].loc[63, "Post-1905_2"] = input_dfs["38B.doc"].loc[63, "Post-1905_2"].replace("NE", "SE")
 
-    if "Y102 38 X9052.doc" in dfs:
+    if "Y102 38 X9052.doc" in input_dfs:
         # Y102 38 X9052.doc 38S/NW IOR/X/9052/38N/SW
-        dfs["Y102 38 X9052.doc"].loc[84, "metadata"] = dfs["Y102 38 X9052.doc"].loc[84, "metadata"].replace("38S/NW", "38N/SW")
-        dfs["Y102 38 X9052.doc"].loc[85, "metadata"] = dfs["Y102 38 X9052.doc"].loc[85, "metadata"].replace("38S/NW", "38N/SW")
+        input_dfs["Y102 38 X9052.doc"].loc[84, "metadata"] = input_dfs["Y102 38 X9052.doc"].loc[84, "metadata"].replace("38S/NW", "38N/SW")
+        input_dfs["Y102 38 X9052.doc"].loc[85, "metadata"] = input_dfs["Y102 38 X9052.doc"].loc[85, "metadata"].replace("38S/NW", "38N/SW")
 
-    if "Y102 53 X9052.doc" in dfs:
+    if "Y102 53 X9052.doc" in input_dfs:
         # Y102 53 X9052.doc 53 M SW IOR/X/9052/53M/SW+M/SE
-        dfs["Y102 53 X9052.doc"].loc[69, "metadata"] = dfs["Y102 53 X9052.doc"].loc[69, "metadata"].replace("53M/SW and M/SE", "53M/SW+M/SE")
+        input_dfs["Y102 53 X9052.doc"].loc[69, "metadata"] = input_dfs["Y102 53 X9052.doc"].loc[69, "metadata"].replace("53M/SW and M/SE", "53M/SW+M/SE")
 
 
 def log_data_errors(output_df_dict: dict[str, pd.DataFrame]) -> None:
+    # TODO record edits to data made by fix_data_errors in the Notes field of the final data model
     pass
 
 
@@ -120,7 +121,7 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
 
     
     # References
-    year_re = re.compile(r"\d{4,4}")
+    year_re = re.compile(r"\d{4,4}$")
     references = {}
     for period in periods:
         col_2 = period + "_2"
@@ -138,6 +139,9 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
                 break
             elif "X/" in l and "+" not in l:
                 logging.info(f"reference simple: {l}")
+                references.update({l: period})
+            elif "X/" in l and "+" in l and hasattr(year_re.search(l), "group"):
+                logging.info(f"reference with plus: {l}")
                 references.update({l: period})
             elif "X/" in l and "+" in l and hasattr(year_re.search(lines[i+1]), "group"):
                 logging.info(f"reference with plus: {l} // {lines[i+1]}")
@@ -274,8 +278,59 @@ def process_2col_row(row: pd.Series, source: str, target_df: pd.DataFrame) -> No
                 target_df.loc[i, "Notes"] += f"\n\nExtended metadata from {source}: \n{row.loc['metadata']}"
 
 
-def validate_output(output_df):
-    pass
+def validate_output(input: dict[str, pd.DataFrame], output: pd.DataFrame) -> None:
+    """Apply a set of validation steps to an output dataframe
+    These are a series of assert statements based on understanding of the input data
+
+    Args:
+        output_df (pd.DataFrame): _description_
+    """
+    
+    sources_by_scale = {
+        "63,360": None,
+        "1:126,720": set([os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\Half Inch\\*.doc")]),
+        "1:253,440": None
+    }
+
+    assert set(output["Scale"].unique()) <= set(sources_by_scale.keys())  # Won't work on a concatenated df of all the individual doc dfs
+    assert set(output["Source File"].unique()) <= sources_by_scale[output["Scale"].unique()[0]]  # ty:ignore[unsupported-operator]
+    assert np.array_equal(output["Location Room"].unique(), ["UGF"])
+    assert set(output["Time Period"].unique()) <= {"<1886", "1886-1905", ">1905", None}
+
+    combined_input_text = ""
+    for df in input.values():
+        df = df.dropna(axis=1, how="all")
+        df += " "
+        combined_input_text += df.sum().sum()
+
+    ref_re = re.compile(r"X/\d{1,7}/[\d\w/+]{1,}(?=\s)")
+    input_refs = ref_re.findall(combined_input_text)
+    input_iors = set(["IOR/" + ref for ref in input_refs])
+    input_iors = input_iors - {'IOR/X/9052/53M/SW'}
+    output_iors = set(output["Full Reference"].dropna())
+    assert input_iors == output_iors
+
+    assert np.array_equal(output["Parent Reference"].dropna().str.count("/").unique(), [2.0])
+
+    # all_xnums = input_dfs["38B"].astype(str).sum(axis=1).str.replace("  ", " ").apply(lambda x: set(ref_re.findall(x)))
+    # related_lookup = defaultdict(set)
+    # for xnums in all_xnums:
+    #     for xnum in xnums:
+    #         related_lookup[xnum] |= xnums
+    # for k,v in related_lookup.items():
+    #     v -= {k}
+
+    # for k, ref in full_refs_with_date.items():
+    #     output_related_refs = set(("\n".join(output.loc[k, ["Post-1905 Related References", "1886-1905 Related References", "Pre-1886 Related References"]])).split("\n")) - {""}
+    #     assert output_related_refs <= related_lookup[ref]
+
+    assert output[
+        [
+            'Sheet Title', 'Edition Number', 
+            'Designation_1', 'Designation_2', 'Publication Date', 'Print Reference', 'Copies Printed',
+            'Coloured', 'Gridded', 'Number of Copies', 'Repmat', 'Latitude', 'Longitude', 'Available'
+        ]
+    ].dropna(axis=1, how="all").empty
 
 
 if __name__ == "__main__":
@@ -283,19 +338,19 @@ if __name__ == "__main__":
     csv_files = glob.glob("data/interim/Half Inch/*.csv")
     metadata_files = glob.glob("data/interim/Half Inch/*.json")
 
-    dfs, metadatas = {}, {}
-    for f in csv_files[15:16]:
+    input_dfs, metadatas = {}, {}
+    for f in csv_files:
         file_id = os.path.basename(f).split(".")[0] + ".doc"
         df = pd.read_csv(f, encoding="utf8").dropna(how="all")
         with open(f[:-4] + ".json") as g:
             metadata = json.load(g)
-        dfs[file_id] = pre_process_df(df)
+        input_dfs[file_id] = pre_process_df(df)
         metadatas[file_id] = metadata
 
-    fix_data_errors(dfs)
+    fix_data_errors(input_dfs)
 
     entry_dfs = {}
-    for file_id, df in dfs.items():
+    for file_id, df in input_dfs.items():
         print(file_id)
         entries = []
         if df.columns.equals(pd.Index(['Post-1905_1', 'Post-1905_2', '1886-1905_1', '1886-1905_2', 'Pre-1886_1', 'Pre-1886_2'])):
@@ -303,14 +358,14 @@ if __name__ == "__main__":
             entry_df = pd.concat([pd.DataFrame(x, index=[0]) for x in entries]).reset_index(drop=True)
             entry_dfs[file_id] = entry_df
     
-    for file_id, df in dfs.items():
+    for file_id, df in input_dfs.items():
         if "Y" in file_id and df.columns.equals(pd.Index(["Post-1905_1", "metadata"])):
             target = file_id.split()[1]
             target_df = entry_dfs[target + "B.doc"]
             [process_2col_row(row=row, source=file_id, target_df=target_df) for (name, row) in df.iterrows()]
 
-    combined_df = pd.concat([df for df in entry_dfs.values()])
-    validate_output(combined_df)
+    output = pd.concat([df for df in entry_dfs.values()])
+    validate_output(input=input_dfs, output=output)
 
-    combined_df.to_csv("data/processed/v0.6_sample.csv", encoding="utf-8-sig", index=False)
-    combined_df.to_excel("data/processed/v0.6_sample.xlsx", index=False)
+    output.to_csv("data/processed/v0.6_sample.csv", encoding="utf-8-sig", index=False)
+    output.to_excel("data/processed/v0.6_sample.xlsx", index=False)
