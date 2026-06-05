@@ -51,6 +51,21 @@ def pre_process_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def validate_block_info(bn, bl, sid):
+    bn_re = re.compile(r"\d{2,2}$")
+    bl_re = re.compile(r"[A-P]{1,1}$")
+    sid_re = re.compile(r"\d{1,2}$|[NESW]{2}$")
+
+    if not hasattr(bn_re.match(bn), "group"):
+        raise ValueError(f"Block Number does not match expected 2 digit pattern: {bn}")
+
+    if not hasattr(bl_re.match(bl), "group"):
+        raise ValueError(f"Block Letter does not match expected 1 letter pattern: {bl}")
+
+    if sid is not None and not hasattr(sid_re.match(sid), "group"):  # sid can be None so check for that case
+        raise ValueError(f"Sheet ID does not match expected 1-2 digit or 2 letter pattern: {sid}")
+
+
 def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str, str]) -> list[dict[str, str | None]]:
     """Process a 6 col map row into the current data model
 
@@ -100,9 +115,17 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         "Notes": ""
     }
     
+    # TODO handle quarter inch references without the '/' separator
     # Post-1905
-    bn, bl = row.loc["Post-1905_1"].split("/")[0][:2], row.loc["Post-1905_1"].split("/")[0][2]
-    sid = row.loc["Post-1905_1"].split("/")[1]
+    if scale == "Quarter Inch":
+        bn, bl = row.loc["Post-1905_1"][:2], row.loc["Post-1905_1"][2]
+        sid = None
+    else:
+        bn, bl = row.loc["Post-1905_1"].split("/")[0][:2], row.loc["Post-1905_1"].split("/")[0][2]
+        sid = row.loc["Post-1905_1"].split("/")[1]
+
+    validate_block_info(bn, bl, sid)
+
     entry_template["Post-1905 Block Number"] = bn
     entry_template["Post-1905 Block Letter"] = bl
     entry_template["Post-1905 Sheet ID"] = sid
@@ -212,11 +235,25 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         if "+" in x_num and entry["Time Period"] == ">1905":
             logging.info(f"creating new entry for reference with plus: {x_num}")
             plus_bn = x_num[7:9]
-            for part in x_num[9:].split("+"):
+
+            for part in x_num[7:].split("+"):
+                bn_re = re.compile(r"\d{2,2}")
+                if hasattr(bn_re.match(part), "group"):
+                    plus_bn = part[:2]
+                    part = part[2:]
+
+                if scale == "Quarter Inch":
+                    logging.info(f"Quarter Inch ref with +: {x_num}")
+                    plus_bl = part[0]
+                    sid = None
+                else:
+                    plus_bl = part.split("/")[0]
+                    plus_sid = part.split("/")[1]
+
+                validate_block_info(plus_bn, plus_bl, plus_sid)
                 plus_entry = deepcopy(entry)
-                plus_bl = part.split("/")[0]
-                plus_sid = part.split("/")[1]
-                if plus_bl == bl and plus_sid == sid:
+
+                if plus_bn == bn and plus_bl == bl and plus_sid == sid:
                     continue
                 else:
                     plus_entry["Post-1905 Block Number"] = plus_bn
@@ -287,9 +324,9 @@ def validate_output(input: dict[str, pd.DataFrame], output: pd.DataFrame) -> Non
     """
     
     sources_by_scale = {
-        "63,360": None,
+        "63,360": set([os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\One Inch\\*.doc")]),
         "1:126,720": set([os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\Half Inch\\*.doc")]),
-        "1:253,440": None
+        "1:253,440": set([os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\Quarter Inch\\*.doc")])
     }
 
     assert set(output["Scale"].unique()) <= set(sources_by_scale.keys())  # Won't work on a concatenated df of all the individual doc dfs
@@ -306,6 +343,7 @@ def validate_output(input: dict[str, pd.DataFrame], output: pd.DataFrame) -> Non
     ref_re = re.compile(r"X/\d{1,7}/[\d\w/+]{1,}(?=\s)")
     input_refs = ref_re.findall(combined_input_text)
     input_iors = set(["IOR/" + ref for ref in input_refs])
+    #  'IOR/X/9052/53M/SW' checked and removed as incorrect findall of IOR/X/9052/53M/SW+M/SE
     input_iors = input_iors - {'IOR/X/9052/53M/SW'}
     output_iors = set(output["Full Reference"].dropna())
     assert input_iors == output_iors
@@ -335,8 +373,9 @@ def validate_output(input: dict[str, pd.DataFrame], output: pd.DataFrame) -> Non
 
 if __name__ == "__main__":
 
-    csv_files = glob.glob("data/interim/Half Inch/*.csv")
-    metadata_files = glob.glob("data/interim/Half Inch/*.json")
+    scale = "Half Inch"
+    csv_files = glob.glob(f"data/interim/{scale}/*.csv")
+    metadata_files = glob.glob(f"data/interim/{scale}/*.json")
 
     input_dfs, metadatas = {}, {}
     for f in csv_files:
@@ -354,7 +393,7 @@ if __name__ == "__main__":
         print(file_id)
         entries = []
         if df.columns.equals(pd.Index(['Post-1905_1', 'Post-1905_2', '1886-1905_1', '1886-1905_2', 'Pre-1886_1', 'Pre-1886_2'])):
-            [entries.extend(process_6col_row(row[1], source=file_id, scale="Half Inch", metadata=metadatas[file_id])) for row in df.iterrows()]
+            [entries.extend(process_6col_row(row[1], source=file_id, scale=scale, metadata=metadatas[file_id])) for row in df.iterrows()]
             entry_df = pd.concat([pd.DataFrame(x, index=[0]) for x in entries]).reset_index(drop=True)
             entry_dfs[file_id] = entry_df
     
@@ -367,5 +406,5 @@ if __name__ == "__main__":
     output = pd.concat([df for df in entry_dfs.values()])
     validate_output(input=input_dfs, output=output)
 
-    output.to_csv("data/processed/v0.6_sample.csv", encoding="utf-8-sig", index=False)
-    output.to_excel("data/processed/v0.6_sample.xlsx", index=False)
+    output.to_csv("data/processed/v0.7_sample.csv", encoding="utf-8-sig", index=False)
+    output.to_excel("data/processed/v0.7_sample.xlsx", index=False)
