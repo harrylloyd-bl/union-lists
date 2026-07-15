@@ -11,8 +11,10 @@ import re
 import numpy as np
 import pandas as pd
 
+from union_lists.config import *
+
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename=f"logs/{datetime.now().strftime("%Y%m%d_%H%M")}_main.log", level=logging.INFO)
+logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_main.log", level=logging.INFO)
 
 
 def fix_data_errors(input_df_dict: dict[str, pd.DataFrame]) -> None:
