@@ -346,7 +346,7 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
     return entries
 
 
-def process_2col_row(row: pd.Series, source: str, target_df: pd.DataFrame) -> None:
+def process_2col_row(row: pd.Series, source: str, target_df: pd.DataFrame, scale: str) -> None:
     """Process a 2 column row from a Y series spreadsheet
     Y series contain extra information about map sheets
     This function uses that information to enrich existing rows in a dataframe processed from a 6 col spreadsheet
@@ -454,43 +454,6 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
 
 
 if __name__ == "__main__":
-
-    scale = "Quarter Inch"
-    block_suffix = {"One Inch": "A", "Half Inch": "B", "Quarter Inch": "C"}[scale]
-    csv_files = glob.glob(f"data/interim/{scale}/*.csv")
-    metadata_files = glob.glob(f"data/interim/{scale}/*.json")
-
-    input_dfs, metadatas = {}, {}
-    for f in csv_files:
-        file_id = os.path.basename(f).split(".")[0] + ".doc"
-        df = pd.read_csv(f, encoding="utf8").dropna(how="all")
-        with open(f[:-4] + ".json") as g:
-            metadata = json.load(g)
-        input_dfs[file_id] = pre_process_df(df)
-        metadatas[file_id] = metadata
-
-    fix_data_errors(input_dfs)
-
-    entry_dfs = {}
-    for file_id, df in input_dfs.items():
-        print(file_id)
-        entries = []
-        if df.columns.equals(pd.Index(['Post-1905_1', 'Post-1905_2', '1886-1905_1', '1886-1905_2', 'Pre-1886_1', 'Pre-1886_2'])):
-            [entries.extend(process_6col_row(row[1], source=file_id, scale=scale, metadata=metadatas[file_id])) for row in df.iterrows()]
-            entry_df = pd.concat([pd.DataFrame(x, index=[0]) for x in entries]).reset_index(drop=True)
-            entry_dfs[file_id] = entry_df
-    
-    for file_id, df in input_dfs.items():
-        if "Y" in file_id and df.columns.equals(pd.Index(["Post-1905_1", "metadata"])):
-            target = file_id.split()[1]
-            target_df = entry_dfs[target + f"{block_suffix}.doc"]
-            [process_2col_row(row=row, source=file_id, target_df=target_df) for (name, row) in df.iterrows()]
-
-    output = pd.concat([df for df in entry_dfs.values()])
-
-    output.to_csv(f"data/processed/v0.7_{scale.lower().replace(' ', '_')}_sample.csv", encoding="utf-8-sig", index=False)
-    output.to_excel(f"data/processed/v0.7_{scale.lower().replace(' ', '_')}_sample.xlsx", index=False)
-
-    validate_output(df_input=input_dfs, output=output)
+    pass
 
     
