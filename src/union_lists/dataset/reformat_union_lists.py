@@ -69,6 +69,18 @@ def pre_process_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def validate_block_info(bn, bl, sid):
+    """Validate a set of block information using regex
+
+    Args:
+        bn (str): a block number
+        bl (str): a block letter
+        sid (str): a sheet id
+
+    Raises:
+        ValueError: if bn does not match the bn_re
+        ValueError: if bl does not match the bl_re
+        ValueError: if sid does not match the sid_re
+    """
     bn_re = re.compile(r"\d{2,2}$")
     bl_re = re.compile(r"[A-P]{1,1}$")
     sid_re = re.compile(r"\d{1,2}$|[NESW]{2}$")
@@ -84,6 +96,15 @@ def validate_block_info(bn, bl, sid):
 
 
 def parse_plus_block_info(x_num: str, scale: str) -> list[dict[str,str | None]]:
+    """Parse a reference that contains `+` to extract block info for the expanded references
+
+    Args:
+        x_num (str): an X num reference
+        scale (str): the scale string (one of "One Inch", "Half Inch", "Quarter Inch")
+
+    Returns:
+        list[dict[str,str | None]]: a list of block infos for the expanded reference
+    """
     if x_num.startswith("X"):
         plus_bn = "/".join(x_num.split("/")[:2])
         x_num_stub = "/".join(x_num.split("/")[2:])
@@ -134,13 +155,12 @@ def parse_plus_block_info(x_num: str, scale: str) -> list[dict[str,str | None]]:
     return parsed_block_infos
     
 
-def extract_plus_references(x_num: str, scale: str, bn: str, bl: str, sid: str|None, entry: dict[str, str|None]) -> list[dict[str, str|None]]:
+def extract_plus_references(x_num: str, scale: str, bl: str, sid: str|None, entry: dict[str, str|None]) -> list[dict[str, str|None]]:
     """Split references where they contain a plus into multiple entries
 
     Args:
         x_num (str): The complete X number reference
         scale (str): Map scale
-        bn (str): Initial block number
         bl (str): Initial block letter
         sid (str): Initial sheet ID
         entry (dict[str, str | None]): Initial entry
@@ -176,6 +196,10 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         row (pd.Series): A row from a .doc/.xlsx file with information about a map sheet
         source (str): The filename the row came from
         scale (str): One of "One Inch", "Half Inch", "Quarter Inch". The scale of the map as a string.
+        metadata (dict[str, str]): Metadata for the row, extracted from the footer of a 6 col document
+    
+    Returns:
+        list[dict[str, str|None]]: A list of entries extracted from the row
     """
     entries = []
     entry_template = {
@@ -340,7 +364,7 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         entries.append(entry)
         
         if "+" in x_num and entry["Time Period"] == ">1905":
-            plus_entries = extract_plus_references(x_num=x_num, scale=scale, bn=bn, bl=bl, sid=sid, entry=entry)
+            plus_entries = extract_plus_references(x_num=x_num, scale=scale, bl=bl, sid=sid, entry=entry)
             entries.extend(plus_entries)
         
     return entries
@@ -355,6 +379,9 @@ def process_2col_row(row: pd.Series, source: str, target_df: pd.DataFrame, scale
         row (pd.Series): Row from a Y series spreadsheet
         source (str): The file name of the Y series spreadsheet
         target_df (pd.DataFrame): The dataframe to update with enriched metadata
+
+    Returns:
+        None
     """
     if pd.isna(row.loc["Post-1905_1"]) and "not published" in row.loc["metadata"]:
         block_info = row.loc["metadata"].split()[1]
