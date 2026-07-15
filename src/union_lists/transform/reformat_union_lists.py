@@ -21,24 +21,36 @@ def fix_data_errors(input_df_dict: dict[str, pd.DataFrame]) -> None:
     Args:
         df_dict (dict[str, pd.DataFrame]): Dict of the dataframes extracted from the raw .doc files
     """
-    if "38B.doc" in input_dfs:
+    if "38B.doc" in input_df_dict:
         # Y102 38 X9052.doc 38J/SW IOR/X/9052/38J/SW
-        input_dfs["38B.doc"].loc[37, "Post-1905_2"] = input_dfs["38B.doc"].loc[37, "Post-1905_2"].replace("NW", "SW")
+        input_df_dict["38B.doc"].loc[37, "Post-1905_2"] = input_df_dict["38B.doc"].loc[37, "Post-1905_2"].replace("NW", "SW")
 
         # Y102 38 X9052.doc 38 P SE IOR/X/9052/38P/SE
-        input_dfs["38B.doc"].loc[63, "Post-1905_2"] = input_dfs["38B.doc"].loc[63, "Post-1905_2"].replace("NE", "SE")
+        input_df_dict["38B.doc"].loc[63, "Post-1905_2"] = input_df_dict["38B.doc"].loc[63, "Post-1905_2"].replace("NE", "SE")
 
-    if "Y102 38 X9052.doc" in input_dfs:
+    if "58C.doc" in input_df_dict:
+        # Missing new line character in cell
+        input_df_dict["58C.doc"].loc[1, "Post-1905_2"] = input_df_dict["58C.doc"].loc[1, "Post-1905_2"].replace("1937 X/13104", "1937\nX/13104")
+
+    if "83A.doc" in input_df_dict and "83a plus.doc" in input_df_dict:
+        input_df_dict["83A.doc"][["1886-1905_1", "1886-1905_2", "Pre-1886_1", "Pre-1886_2"]] = input_df_dict["83a plus.doc"][["1886-1905_1", "1886-1905_2", "Pre-1886_1", "Pre-1886_2"]]
+        del input_df_dict["83a plus.doc"]
+
+    if "Y102 38 X9052.doc" in input_df_dict:
         # Y102 38 X9052.doc 38S/NW IOR/X/9052/38N/SW
-        input_dfs["Y102 38 X9052.doc"].loc[84, "metadata"] = input_dfs["Y102 38 X9052.doc"].loc[84, "metadata"].replace("38S/NW", "38N/SW")
-        input_dfs["Y102 38 X9052.doc"].loc[85, "metadata"] = input_dfs["Y102 38 X9052.doc"].loc[85, "metadata"].replace("38S/NW", "38N/SW")
+        input_df_dict["Y102 38 X9052.doc"].loc[84, "metadata"] = input_df_dict["Y102 38 X9052.doc"].loc[84, "metadata"].replace("38S/NW", "38N/SW")
+        input_df_dict["Y102 38 X9052.doc"].loc[85, "metadata"] = input_df_dict["Y102 38 X9052.doc"].loc[85, "metadata"].replace("38S/NW", "38N/SW")
 
-    if "Y102 53 X9052.doc" in input_dfs:
+    if "Y102 53 X9052.doc" in input_df_dict:
         # Y102 53 X9052.doc 53 M SW IOR/X/9052/53M/SW+M/SE
-        input_dfs["Y102 53 X9052.doc"].loc[69, "metadata"] = input_dfs["Y102 53 X9052.doc"].loc[69, "metadata"].replace("53M/SW and M/SE", "53M/SW+M/SE")
+        input_df_dict["Y102 53 X9052.doc"].loc[69, "metadata"] = input_df_dict["Y102 53 X9052.doc"].loc[69, "metadata"].replace("53M/SW and M/SE", "53M/SW+M/SE")
     
-    if "Y101 38 X9053.docx" in input_dfs:
-        input_dfs["Y102 53 X9052.doc"].loc[:, "metadata"] = input_dfs["Y102 53 X9052.doc"].loc[:, "metadata"].str.replace(" & ", "+")
+    if "Y101 38 X9053.doc" in input_df_dict:
+        # Standardise '&' as '+'
+        input_df_dict["Y101 38 X9053.doc"].loc[:, "metadata"] = input_df_dict["Y101 38 X9053.doc"].loc[:, "metadata"].str.replace(" & ", "+")
+
+        # These rows duplicate information in Y103 38 X9051.doc
+        input_df_dict["Y101 38 X9053.doc"] = input_df_dict["Y101 38 X9053.doc"].iloc[:-24].copy()
 
 
 def log_data_errors(output_df_dict: dict[str, pd.DataFrame]) -> None:
@@ -51,7 +63,7 @@ def pre_process_df(df: pd.DataFrame) -> pd.DataFrame:
     for col in df.dropna(axis=1, how="all"):
         if df[col].dtype in (pd.StringDtype(na_value=np.nan), str):
             df[col] = df[col].str.replace("  ", " ")
-    return df
+    return df.dropna(axis=0, how="all")
 
 
 def validate_block_info(bn, bl, sid):
@@ -69,28 +81,17 @@ def validate_block_info(bn, bl, sid):
         raise ValueError(f"Sheet ID does not match expected 1-2 digit or 2 letter pattern: {sid}")
 
 
-def extract_plus_references(x_num: str, scale: str, bn: str, bl: str, sid: str|None, entry: dict[str, str|None]) -> list[dict[str, str|None]]:
-    """Split references where they contain a plus into multiple entries
+def parse_plus_block_info(x_num: str, scale: str) -> list[dict[str,str | None]]:
+    if x_num.startswith("X"):
+        plus_bn = "/".join(x_num.split("/")[:2])
+        x_num_stub = "/".join(x_num.split("/")[2:])
+    else:
+        plus_bn = x_num[:2]
+        x_num_stub = x_num[2:]
+    parsed_block_infos = []
 
-    Args:
-        x_num (str): The complete X number reference
-        scale (str): Map scale
-        bn (str): Initial block number
-        bl (str): Initial block letter
-        sid (str): Initial sheet ID
-        entry (dict[str, str | None]): Initial entry
-
-    Returns:
-        list[dict[str, str|None]]: A list of entries split from the complete reference
-    """
-    plus_entries = []
-    logging.info(f"creating new entry for reference with plus: {x_num}")
-    plus_bn = x_num[7:9]
-    plus_bl = bl
-    plus_sid = sid
     bn_re = re.compile(r"\d{2,2}")
-
-    for part in x_num[7:].split("+"):
+    for part in x_num_stub.split("+"):
         if scale == "Quarter Inch":
             logging.info(f"Quarter Inch ref with +: {x_num}")
             
@@ -121,13 +122,45 @@ def extract_plus_references(x_num: str, scale: str, bn: str, bl: str, sid: str|N
                 plus_sid = part.split("/")[1]
             
         validate_block_info(plus_bn, plus_bl, plus_sid)
-        if plus_bn == bn and plus_bl == bl and plus_sid == sid:
+
+        parsed_block_infos.append({
+            "bn":plus_bn,
+            "bl":plus_bl,
+            "sid":plus_sid
+            })
+    
+    return parsed_block_infos
+    
+
+def extract_plus_references(x_num: str, scale: str, bn: str, bl: str, sid: str|None, entry: dict[str, str|None]) -> list[dict[str, str|None]]:
+    """Split references where they contain a plus into multiple entries
+
+    Args:
+        x_num (str): The complete X number reference
+        scale (str): Map scale
+        bn (str): Initial block number
+        bl (str): Initial block letter
+        sid (str): Initial sheet ID
+        entry (dict[str, str | None]): Initial entry
+
+    Returns:
+        list[dict[str, str|None]]: A list of entries split from the complete reference
+    """
+    plus_entries = []
+    logging.info(f"creating new entry for reference with plus: {x_num}")
+    default_bn = x_num[7:9]
+    default_bl = bl
+    default_sid = sid
+    
+    parsed_block_infos = parse_plus_block_info(x_num=x_num, scale=scale)
+    for pbi in parsed_block_infos:
+        if default_bn == pbi["bn"] and default_bl == pbi["bl"] and default_sid == pbi["sid"]:
             continue
         else:
             plus_entry = deepcopy(entry)
-            plus_entry["Post-1905 Block Number"] = plus_bn
-            plus_entry["Post-1905 Block Letter"] = plus_bl
-            plus_entry["Post-1905 Sheet ID"] = plus_sid
+            plus_entry["Post-1905 Block Number"] = pbi["bn"]
+            plus_entry["Post-1905 Block Letter"] = pbi["bl"]
+            plus_entry["Post-1905 Sheet ID"] = pbi["sid"]
         
         plus_entries.append(plus_entry)
     
@@ -212,7 +245,8 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
 
     
     # References
-    year_re = re.compile(r"\d{4,4}$")
+    strong_year_re = re.compile(r" \d{4,4}$")
+    weak_year_re = re.compile(r" \d{4,4}")
     references = {}
     for period in periods:
         col_2 = period + "_2"
@@ -231,11 +265,14 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
             elif "X/" in l and "+" not in l:
                 logging.info(f"reference simple: {l}")
                 references.update({l: period})
-            elif "X/" in l and "+" in l and hasattr(year_re.search(l), "group"):
-                logging.info(f"reference with plus: {l}")
+            elif "X/" in l and "+" in l and hasattr(strong_year_re.search(l), "group"):
+                logging.info(f"reference with plus, strong year re: {l}")
                 references.update({l: period})
-            elif "X/" in l and "+" in l and hasattr(year_re.search(lines[i+1]), "group"):
-                logging.info(f"reference with plus: {l} // {lines[i+1]}")
+            elif "X/" in l and "+" in l and hasattr(weak_year_re.search(l), "group"):
+                logging.info(f"reference with plus, weak year re: {l}")
+                references.update({l: period})
+            elif "X/" in l and "+" in l and hasattr(strong_year_re.search(lines[i+1]), "group"):
+                logging.info(f"reference with plus, multiline: {l} // {lines[i+1]}")
                 modified_line = l.strip() + " " + lines[i+1].strip()
                 references.update({modified_line: period})
                 modified_lines[i] = modified_line
@@ -337,21 +374,19 @@ def process_2col_row(row: pd.Series, source: str, target_df: pd.DataFrame) -> No
                 row.loc["Post-1905_1"] = "".join([l.strip() for l in row.loc["Post-1905_1"].split("\n")])
         
         block_info = row.loc["metadata"].split()[1]
-        
+
         if "+" in block_info:
-            bls = [x.split("/")[0] for x in block_info[2:].split("+")]
-            sids = [x.split("/")[1] for x in block_info[2:].split("+")]
-            bns = [block_info[:2] for x in bls]
-            logging.info(f"Y doc ref contains +: block info {block_info}, bns {bns}, bls {bls}, sids {sids}")
+            parsed_block_infos = parse_plus_block_info(x_num=block_info, scale=scale)
         elif len(block_info) == 3:
-            bns, bls = [block_info[:2]], [block_info[2]]
-            sids = [None]
+            parsed_block_infos = [{"bn": block_info[:2], "bl": block_info[2], "sid": None}]
         else:
-            bns, bls = [block_info.split("/")[0][:2]], [block_info.split("/")[0][2]]
-            sids = [block_info.split("/")[1]]
+            parsed_block_infos = [{"bn": block_info.split("/")[0][:2], "bl": block_info.split("/")[0][2], "sid": block_info.split("/")[1]}]
         
-        for bn, bl, sid in zip(bns, bls, sids):
-            validate_block_info(bn, bl, sid)
+        for pbi in parsed_block_infos:
+            bn = pbi["bn"]
+            bl = pbi["bl"]
+            sid = pbi["sid"]
+            
             published_query = f"`Post-1905 Block Number` == '{bn}' and `Post-1905 Block Letter` == '{bl}' and `Post-1905 Sheet ID` == '{sid}' and `Full Reference` == 'IOR/{row.loc["Post-1905_1"]}'"
             query_idx = target_df.query(published_query).index
             if target_df.query(published_query).empty:
@@ -368,7 +403,6 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
     Args:
         output_df (pd.DataFrame): _description_
     """
-    
     sources_by_scale = {
         "63,360": set([os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\One Inch\\*.doc")]),
         "1:126,720": set([os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\Half Inch\\*.doc")]),
@@ -419,7 +453,7 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
 
 if __name__ == "__main__":
 
-    scale = "One Inch"
+    scale = "Quarter Inch"
     block_suffix = {"One Inch": "A", "Half Inch": "B", "Quarter Inch": "C"}[scale]
     csv_files = glob.glob(f"data/interim/{scale}/*.csv")
     metadata_files = glob.glob(f"data/interim/{scale}/*.json")
@@ -451,7 +485,10 @@ if __name__ == "__main__":
             [process_2col_row(row=row, source=file_id, target_df=target_df) for (name, row) in df.iterrows()]
 
     output = pd.concat([df for df in entry_dfs.values()])
+
+    output.to_csv(f"data/processed/v0.7_{scale.lower().replace(' ', '_')}_sample.csv", encoding="utf-8-sig", index=False)
+    output.to_excel(f"data/processed/v0.7_{scale.lower().replace(' ', '_')}_sample.xlsx", index=False)
+
     validate_output(df_input=input_dfs, output=output)
 
-    output.to_csv("data/processed/v0.7_one_inch_sample.csv", encoding="utf-8-sig", index=False)
-    output.to_excel("data/processed/v0.7_one_inch_sample.xlsx", index=False)
+    
