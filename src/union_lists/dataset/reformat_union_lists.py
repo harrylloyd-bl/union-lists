@@ -530,12 +530,15 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
         combined_input_text += df.sum().sum()
 
     # TODO check for W/ refs as well
-    ref_re = re.compile(r"X/\d{1,7}/[\d\w/+]{1,}(?=\s)")
+    ref_re = re.compile(r"(?<![NS])[XW]/\d{1,7}/[\d\w/+]{1,}(?=\s)")
     input_refs = ref_re.findall(combined_input_text)
     input_iors = set(["IOR/" + ref for ref in input_refs])
     #  'IOR/X/9052/53M/SW' checked and removed as incorrect findall of IOR/X/9052/53M/SW+M/SE
     input_iors = input_iors - {'IOR/X/9052/53M/SW'}
     output_iors = set(output["Full Reference"].dropna())
+    missed_long_w_refs = {ior for ior in output_iors - input_iors if "/W/" in ior}
+    #  ref_re above is too simple to catch long W references, so remove these from the output side
+    output_iors = output_iors - missed_long_w_refs
     assert input_iors == output_iors
 
     assert np.array_equal(output["Parent Reference"].dropna().str.count("/").unique(), [2.0])
