@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from union_lists.config import *
+from union_lists.dataset.extract_from_doc import find_refs
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_main.log", level=logging.INFO)
@@ -189,6 +190,124 @@ def extract_plus_references(x_num: str, scale: str, bl: str, sid: str|None, entr
     return plus_entries
 
 
+def create_notes_map(lines: list[str], labels: list[str]) -> dict[int, str]:
+    """Create a mapping from notes lines to the references they should be notes for
+
+    Args:
+        lines (list[str]): Lines from a cell in one of the input documents
+        labels (list[str]): Labels for the cell lines - `ref` or `note`
+
+    Raises:
+        ValueError: If there are no references among the labels, in which case there's nothing to map to
+
+    Returns:
+        dict[int, str]: A mapping from notes to references
+    """
+    if all([l == "note" for l in labels]):
+        raise ValueError("All labels are notes, some labels must be references")
+
+    notes_map = {i:"" for i, label in enumerate( labels) if label == "ref"}
+    preceding_ref = -1
+    all_line_notes = ""
+    for i, (line, label) in enumerate(zip(lines, labels)):
+        if label == "ref":
+            preceding_ref = i
+        elif label == "note" and preceding_ref == -1:
+            all_line_notes += line + "\n"
+        elif label == "note" and preceding_ref > -1:
+            notes_map[preceding_ref] += line + "\n"
+
+    for k in notes_map:
+        notes_map[k] += all_line_notes
+
+    return notes_map
+
+
+def extract_references(row: pd.Series, periods: list[str]) -> dict[str,dict[str,str]]:
+    """Extract all X/ or W/ references from a row mapped to period.
+    Modify any lines in row that have a split '+' reference
+
+    Args:
+        row (pd.Series): row from a map list document
+        periods (list[str]): the time periods covered by the map list columns
+
+    Returns:
+        dict[str,str]: an X/ or W/ ref : period mapping used to output in the new data model
+    """
+    # References
+    strong_year_re = re.compile(r" \d{4,4}$")
+    weak_year_re = re.compile(r" \d{4,4}")
+    references = {}
+    all_ref_note = ""
+
+    for period in periods:
+        col_1 = period + "_1"
+        col_2 = period + "_2"
+        if not pd.isna(row.loc[col_2]):
+            lines_labels = [l.strip().split(" /// ") for l in row.loc[col_2].split("\n")]
+            raw_lines, raw_labels = [l[0] for l in lines_labels], [l[1] for l in lines_labels]
+            lines, labels = raw_lines.copy(), raw_labels.copy()
+        else:
+            continue
+        
+        # Only notes in a col_2
+        if all([l == "note" for l in labels]):
+            all_ref_note += f"{period} {row.loc[col_1]}: {'\n'.join(lines)}"
+            continue
+
+        modified_lines_to_remove = []
+        # fix split line '+' references
+        for i, l in enumerate(lines[:-1]):
+
+            strong_year_in_line = strong_year_re.search(l)
+            weak_year_in_line = weak_year_re.search(l)
+            strong_year_in_next_line = strong_year_re.search(lines[i+1])
+            line_to_mod = not strong_year_in_line and not weak_year_in_line and strong_year_in_next_line
+
+            if "X/" in l and "+" in l and line_to_mod:
+                logging.info(f"reference with plus, multiline: {l} // {lines[i+1]}")
+                modified_line = l.strip() + " " + lines[i+1].strip()
+                lines[i] = modified_line
+                modified_lines_to_remove.append(i+1)
+                if labels[i] == labels[i+1]:
+                    raise ValueError(f"Label for line to concatenate doesn't match succeeding label: {lines[i]}  // {lines[i+1]}")
+        
+        for i in modified_lines_to_remove:
+            del lines[i]
+            del labels[i]
+
+        row.loc[col_2] = "\n".join(lines)
+
+        # Any other combination of notes and references
+        notes_map = create_notes_map(lines, labels)
+        
+        for i, l in enumerate(lines):
+            refs = find_refs(l)
+            strong_year_in_line = strong_year_re.search(l)
+            weak_year_in_line = weak_year_re.search(l)
+            # breakpoint()
+            if refs and len(lines) == 1:
+                logging.info(f"reference single line: {l}")
+                references.update({l: {"Period": period, "Notes":notes_map[i]}})
+            elif refs and "+" not in l:
+                logging.info(f"reference simple: {l}")
+                references.update({l: {"Period": period, "Notes":notes_map[i]}})
+            elif "X/" in l and "+" in l and strong_year_in_line:
+                logging.info(f"reference with plus, strong year re: {l}")
+                references.update({l: {"Period": period, "Notes":notes_map[i]}})
+            elif "X/" in l and "+" in l and weak_year_in_line:
+                logging.info(f"reference with plus, weak year re: {l}")
+                references.update({l: {"Period": period, "Notes":notes_map[i]}})
+
+    for v in references.values():
+        v["Notes"] += all_ref_note
+
+    if not references and all_ref_note:
+        return {"NOTE_ONLY": {"Notes": all_ref_note}}
+    else:
+        return references
+
+
 def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str, str]) -> list[dict[str, str | None]]:
     """Process a 6 col map row into the current data model
 
@@ -202,11 +321,11 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         list[dict[str, str|None]]: A list of entries extracted from the row
     """
     entries = []
-    entry_template = {
+    entry_template: dict[str, None|str] = {
         "Source File": source,
         "Series Title": f"Survey of India India and Adjacent Countries {scale} Series",
         "Scale": {"Quarter Inch": "1:253,440", "Half Inch": "1:126,720", "One Inch": "63,360"}[scale],
-        "Published": None,  # How to tell if published and we don"t have a copy?
+        "Published": None,
         "Location Room": "UGF",
         "Location Section": None,  # dict lookup with external resource, out of scope currently, see Issue #2
         "Location Detail": None,  # dict lookup with external resource, out of scope currently, see Issue #2
@@ -226,7 +345,7 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         "Pre-1886 Old Sheet ID": None,
         "Sheet Title": None,
         "Edition Number": None,
-        "Edition Date": None,
+        "Edition Date": "",
         "Designation_1": None,
         "Designation_2": None,
         "Publication Date": None,
@@ -242,7 +361,6 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         "Notes": ""
     }
     
-    # TODO handle quarter inch references without the '/' separator
     # Post-1905
     if scale == "Quarter Inch":
         bn, bl = row.loc["Post-1905_1"][:2], row.loc["Post-1905_1"][2]
@@ -269,73 +387,42 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
                 entry_template[f"{period} New Sheet ID"] = row.loc[col_1].split("\n")[1]
                 entry_template[f"{period} Old Sheet ID"] = row.loc[col_1].split("\n")[0]
 
-    
-    # References
-    strong_year_re = re.compile(r" \d{4,4}$")
-    weak_year_re = re.compile(r" \d{4,4}")
-    references = {}
-    for period in periods:
-        col_2 = period + "_2"
-        if not pd.isna(row.loc[col_2]):
-            lines = [l.strip() for l in row.loc[col_2].split("\n")]
-            modified_lines = lines.copy()
-        else:
-            continue
-        
-        modified_lines_to_remove = []
-        for i, l in enumerate(lines):
-            if "X/" in l and len(lines) == 1:
-                logging.info(f"reference single line: {l}")
-                references.update({lines[0]: period})
-                break
-            elif "X/" in l and "+" not in l:
-                logging.info(f"reference simple: {l}")
-                references.update({l: period})
-            elif "X/" in l and "+" in l and hasattr(strong_year_re.search(l), "group"):
-                logging.info(f"reference with plus, strong year re: {l}")
-                references.update({l: period})
-            elif "X/" in l and "+" in l and hasattr(weak_year_re.search(l), "group"):
-                logging.info(f"reference with plus, weak year re: {l}")
-                references.update({l: period})
-            elif "X/" in l and "+" in l and hasattr(strong_year_re.search(lines[i+1]), "group"):
-                logging.info(f"reference with plus, multiline: {l} // {lines[i+1]}")
-                modified_line = l.strip() + " " + lines[i+1].strip()
-                references.update({modified_line: period})
-                modified_lines[i] = modified_line
-                modified_lines_to_remove.append(lines[i+1])
-        
-        [modified_lines.remove(l) for l in modified_lines_to_remove]
-        row.loc[col_2] = "\n".join(modified_lines)
+    references = extract_references(row, periods)
             
+    if "NOTE_ONLY" in references:
+        entry = entry_template
+        entry["Notes"] = references["NOTE_ONLY"]["Notes"]
+        entries.append(entry)
+        return entries
 
-    if not references:
+    elif not references:
         entry = entry_template
         entries.append(entry)
         return entries
     
     time_period = {"Post-1905": ">1905", "1886-1905": "1886-1905", "Pre-1886": "<1886"}
-    for ref, period in references.items():
+    for ref, ref_info in references.items():
         entry = deepcopy(entry_template)
+        period = ref_info["Period"]
         entry["Time Period"] = time_period[period]
         entry["Published"] = "Y"
+        if ref_info["Notes"]:
+            entry["Notes"] = ref_info["Notes"]
+            logging.info(f"reference line includes note: {ref_info["Notes"]}")
 
         # Year and Reference
         if len(ref.split()) == 2:
-            x_num, year = ref.rsplit()
+            x_num, year = ref.split()
         elif len(ref.split()) > 2:
             split_ref = ref.split()
             x_num, year = split_ref[0], split_ref[1]
-            ref_note = " ".join(split_ref[2:])
-            logging.info(f"reference includes note: {ref_note}")
-            entry["Notes"] += f"Reference note: {ref_note}\n"  # ty:ignore[unsupported-operator]
 
         entry["Print Date"] = year
-        entry["Edition Date"] = ""
         if "/" in year:
             logging.info(f"slash split year: {year}")
             entry["Print Date"] = year.split("/")[1]
             entry["Edition Date"] = year.split("/")[0]
-            entry["Notes"] += f"Print Date: {year}. Reference in source {source} indicates earlier Edition Date: {ref}\n"  # ty:ignore[unsupported-operator]
+            entry["Notes"] += f"\nPrint Date: {year}. Reference in source {source} indicates earlier Edition Date: {ref}\n"  # ty:ignore[unsupported-operator]
 
         entry["Full Reference"] = "IOR/" + x_num
         entry["Parent Reference"] = "/".join(entry["Full Reference"].split("/")[:3])
@@ -344,21 +431,14 @@ def process_6col_row(row: pd.Series, source: str, scale: str, metadata: dict[str
         other_refs = references.copy()
         del other_refs[ref]
 
-        for ref, period in other_refs.items():
-            entry[period + " Related References"] += "\n" + ref  # ty:ignore[unsupported-operator]
-            entry[period + " Related References"] = entry[period + " Related References"].lstrip("\n")  # ty:ignore[unresolved-attribute]
-            
-
-        # Reference Notes
-        lines = row.loc[f"{period}_2"].split("\n")
-        if len(lines) > lines.index(ref) + 2 and "X/" not in lines[lines.index(ref) + 1]:
-            entry["Notes"] += f"Reference coverage note: {lines[lines.index(ref) + 1]}\n"  # ty:ignore[unsupported-operator]
-            
+        for ref, ref_info in other_refs.items():
+            related_refs = f"{ref_info["Period"]} Related References"
+            entry[related_refs] += "\n" + ref  # ty:ignore[unsupported-operator]
+            entry[related_refs] = entry[related_refs].lstrip("\n")  # ty:ignore[unresolved-attribute]
+                        
         # Source column header/footer
-        period_header = metadata[f"{period}_header"]
-        period_footer = metadata[f"{period}_footer"]
-        entry["Notes"] += f"\nSource period column header text: \n{period_header}\n"  # ty:ignore[unsupported-operator]
-        entry["Notes"] += f"\nSource period column footer text: \n{period_footer}"
+        entry["Notes"] += f"\nSource period column header text: \n{metadata[f"{period}_header"]}\n"  # ty:ignore[unsupported-operator]
+        entry["Notes"] += f"\nSource period column footer text: \n{metadata[f"{period}_footer"]}"
         entry["Notes"] = entry["Notes"].strip("\n")
         
         entries.append(entry)
@@ -449,6 +529,7 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
         df += " "
         combined_input_text += df.sum().sum()
 
+    # TODO check for W/ refs as well
     ref_re = re.compile(r"X/\d{1,7}/[\d\w/+]{1,}(?=\s)")
     input_refs = ref_re.findall(combined_input_text)
     input_iors = set(["IOR/" + ref for ref in input_refs])
