@@ -52,11 +52,24 @@ def extract_label_lines(paragraphs):
     lines = []
     skip_para = False
     for i, para in enumerate(paragraphs):
+        
         if skip_para:
             skip_para = False
             continue
             
         non_space_runs = [run for run in para.runs if run.text not in [" ", "  ", "\n"]]
+        itals = [run.italic for run in non_space_runs]
+        if set(itals) == {False, None}:  # There are a few cells with italic = None and non italic = False (for some godforsaken reason)
+            for run in non_space_runs:
+                if run.italic == False:
+                    run.italic = None
+                elif run.italic is None:
+                    run.italic = True
+        elif set(itals) == {False, None, True}:
+            for run in non_space_runs:
+                if run.italic == False:
+                    run.italic = None
+
         ital_count = sum([run.italic for run in non_space_runs if run.italic])
         
         # breakpoint()
@@ -97,7 +110,9 @@ def extract_label_lines(paragraphs):
             ital_tracker = non_space_runs[0].italic
             end = {None: " /// ref", True: " /// note"}
             for i, run in enumerate(non_space_runs):
+                final_line = i == len(non_space_runs) - 1
                 # breakpoint()
+
                 if run.italic != ital_tracker and ital_tracker is None:
                     # non-ital > ital, extract refs
                     full_line = " ".join(line_tracker[ital_tracker])
@@ -110,6 +125,10 @@ def extract_label_lines(paragraphs):
                     line_tracker[run.italic].append(run.text)
                     ital_tracker = run.italic
 
+                    if final_line:
+                        ital_line = run.text.strip("\n").strip() + " /// note"
+                        lines.append(ital_line)
+
                 elif run.italic != ital_tracker and ital_tracker:
                     # ital > non-ital
                     # breakpoint()
@@ -121,7 +140,11 @@ def extract_label_lines(paragraphs):
                     line_tracker[run.italic].append(run.text)
                     ital_tracker = run.italic
 
-                elif i == len(non_space_runs) - 1 and ital_tracker is None:
+                    if final_line:
+                        ref_line = run.text.strip("\n").strip() + " /// ref"
+                        lines.append(ref_line)
+
+                elif final_line and ital_tracker is None:
                     # final line, non-ital so extract refs
                     # breakpoint()
                     line_tracker[run.italic].append(run.text)
@@ -131,7 +154,7 @@ def extract_label_lines(paragraphs):
                     reformed_ref_lines = [ref + " /// ref" for ref in refs]
                     lines.extend(reformed_ref_lines)
 
-                elif i == len(non_space_runs) - 1 and ital_tracker:
+                elif final_line and ital_tracker:
                     # final line, ital so append combined
                     line_tracker[run.italic].append(run.text)
                     new_line_stripped = [l.strip("\n") for l in line_tracker[ital_tracker]]
@@ -258,9 +281,15 @@ def clean_map_df(table_dict: dict[int, list[table._Cell]]) -> tuple[pd.DataFrame
 
 
 def postcorrect_df(df, file_id):
-    if file_id == "73C":
-        assert df.loc[11, "Post-1905_2"] == 'X/9051/73L+P  1912 /// ref\nX/9051/73L+P+74I  1934 /// ref\nX/13104/73L+P+74I  1934/1942 /// ref'
-        df.loc[11, "Post-1905_2"] = 'X/9051/73L+P  1912 /// ref\npart extended east for coastal area /// note\nX/9051/73L+P+74I  1934 /// ref\nparts extended east and south for coastal area /// note\nX/13104/73L+P+74I  1934/1942 /// ref\nparts extended east and south for coastal area /// note'
+    if file_id == "62A":
+        # breakpoint()
+        assert df.loc[48, "Post-1905_2"] == 'X/9053/62D /1+ D/ 5  1924 /// ref\nUnited Provinces  only /// note'
+        df.loc[48, "Post-1905_2"] = 'X/9053/62D/1+D/5  1924 /// ref\nUnited Provinces  only /// note'
+
+    if file_id == "72A":
+        assert df.loc[93, "Post-1905_2"] == 'Bihar  only /// note'
+        df.loc[93, "Post-1905_2"] = 'X/9053/72F/14  1939 /// ref\nBihar only /// note'
+
     return df
 
 
