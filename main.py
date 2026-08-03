@@ -15,7 +15,8 @@ from union_lists.config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR
 
 
 def main():
-    SCALE = "One Inch"
+    SCALE = "Quarter Inch"
+    print(f"{SCALE}: Reformating tables to new data format")
     block_suffix = {"One Inch": "A", "Half Inch": "B", "Quarter Inch": "C"}[SCALE]
     csv_files = glob.glob(f"{INTERIM_DATA_DIR}/{SCALE}/*.csv")
     scale_docs = {"Quarter Inch": 38, "Half Inch": 34, "One Inch": 40}
