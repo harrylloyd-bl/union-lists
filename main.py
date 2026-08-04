@@ -1,6 +1,8 @@
 from collections import Counter
 from copy import deepcopy
+from datetime import datetime
 import glob
+import logging
 import json
 import os
 import xml.etree.ElementTree as ET
@@ -11,11 +13,13 @@ from tqdm import tqdm
 import win32com.client as win32
 
 import union_lists.dataset.reformat_union_lists as data
-from union_lists.config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR
+from union_lists.config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR, LOGS_DIR
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_main.log", level=logging.INFO)
 
 def main():
-    SCALE = "Quarter Inch"
+    SCALE = "One Inch"
     print(f"{SCALE}: Reformating tables to new data format")
     block_suffix = {"One Inch": "A", "Half Inch": "B", "Quarter Inch": "C"}[SCALE]
     csv_files = glob.glob(f"{INTERIM_DATA_DIR}/{SCALE}/*.csv")
