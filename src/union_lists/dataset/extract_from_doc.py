@@ -281,12 +281,28 @@ def clean_map_df(table_dict: dict[int, list[table._Cell]]) -> tuple[pd.DataFrame
 
 
 def postcorrect_df(df, file_id):
+    if file_id == "38A":
+        # ref missing date, add 9999
+        assert df.loc[172, "Post-1905_2"] == 'X/9053/38K/13  1908 /// ref\nBazar Valley area only of Khyber Agency /// note\nX/9053/38K/13 1921 /// ref\nX/9053/38K/13  1921/1928 /// ref\nX/9053/38K/13  1934/1935 /// ref'
+        df.loc[172, "Post-1905_2"] = 'X/9053/38K/13  1908 /// ref\nBazar Valley area only of Khyber Agency /// note\nX/9053/38K/13  1921 /// ref\nX/9053/38K/13  1921/1928 /// ref\nX/9053/38K/13  1934/1935 /// ref\nX/9053/38K/13+J/16 9999 /// ref\npart extended north for Bazar Valley area of Khyber Agency /// note'
+    
+    if file_id == "44A":
+        # space separating ref and date has been replaced with a '/'
+        assert df.loc[75, "1886-1905_2"] == 'X/9373/195  1886 /// ref\nMontgomery and Shekhupura only /// note\nX/9373/195/1904 /// ref\nMontgomery, Lahore, and part only of Shekhupura /// note'
+        df.loc[75, "1886-1905_2"] = 'X/9373/195  1886 /// ref\nMontgomery and Shekhupura only /// note\nX/9373/195 1904 /// ref\nMontgomery, Lahore, and part only of Shekhupura /// note'
+
     if file_id == "62A":
-        # breakpoint()
+        # runs split words
         assert df.loc[48, "Post-1905_2"] == 'X/9053/62D /1+ D/ 5  1924 /// ref\nUnited Provinces  only /// note'
         df.loc[48, "Post-1905_2"] = 'X/9053/62D/1+D/5  1924 /// ref\nUnited Provinces  only /// note'
 
+    if file_id == "65A":
+        # '/' replaced with a '.'
+        assert df.loc[175, "Post-1905_2"] == 'X/9053/65L.5  1941 /// ref'
+        df.loc[175, "Post-1905_2"] = 'X/9053/65L/5  1941 /// ref'
+
     if file_id == "72A":
+        # first ref missing - unknown reason
         assert df.loc[93, "Post-1905_2"] == 'Bihar  only /// note'
         df.loc[93, "Post-1905_2"] = 'X/9053/72F/14  1939 /// ref\nBihar only /// note'
 
