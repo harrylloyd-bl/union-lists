@@ -28,6 +28,7 @@ def test_find_refs():
 
 
 def test_extract_label_lines():
+    # TODO possible add test to understand behaviour for 34A @ loc[172, "Post-1905_2"], which is confounded by a misformatted reference
 
     invert_ital_ref_table = Document("tests/62A.docx").tables[0]
     invert_ital_ref_dict = {i: invert_ital_ref_table.column_cells(i) for i, _ in enumerate(invert_ital_ref_table.columns)}
