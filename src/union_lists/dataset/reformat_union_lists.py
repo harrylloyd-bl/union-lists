@@ -15,8 +15,7 @@ from union_lists.config import *
 from union_lists.dataset.extract_from_doc import find_refs
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_main.log", level=logging.INFO)
-
+logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_extract.log", level=logging.INFO)
 
 def fix_data_errors(input_df_dict: dict[str, pd.DataFrame]) -> None:
     """Manually fix some errors in the raw documents
@@ -533,8 +532,11 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
     ref_re = re.compile(r"(?<![NS])[XW]/\d{1,7}/[\d\w/+]{1,}(?=\s)")
     input_refs = ref_re.findall(combined_input_text)
     input_iors = set(["IOR/" + ref for ref in input_refs])
-    #  'IOR/X/9052/53M/SW' checked and removed as incorrect findall of IOR/X/9052/53M/SW+M/SE
-    input_iors = input_iors - {'IOR/X/9052/53M/SW'}
+    #  IOR/X/9052/53M/SW checked and removed as incorrect findall of IOR/X/9052/53M/SW+M/SE
+    #  IOR/X/9051/38K checked and removed as incomplete reference to a One Inch 38K ref
+    #  IOR/X/2083/1 & /16 checked and removed as notes rather than references
+    #  IOR/X/9373/195/1904 checked and removed as misprint, corrected to X/9373/195 1904 in postcorrect_df
+    input_iors = input_iors - {'IOR/X/9052/53M/SW', 'IOR/X/9051/38K', 'IOR/X/2083/1', 'IOR/X/2083/16', 'IOR/X/9373/195/1904'}
     output_iors = set(output["Full Reference"].dropna())
     missed_long_w_refs = {ior for ior in output_iors - input_iors if "/W/" in ior}
     #  ref_re above is too simple to catch long W references, so remove these from the output side
