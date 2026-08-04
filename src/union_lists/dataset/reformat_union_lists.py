@@ -483,12 +483,22 @@ def process_2col_row(row: pd.Series, source: str, target_df: pd.DataFrame, scale
         
         block_info = row.loc["metadata"].split()[1]
 
-        if "+" in block_info:
-            parsed_block_infos = parse_plus_block_info(x_num=block_info, scale=scale)
-        elif len(block_info) == 3:
-            parsed_block_infos = [{"bn": block_info[:2], "bl": block_info[2], "sid": None}]
+        if scale == "Quarter Inch":
+            if "+" in block_info:
+                parsed_block_infos = parse_plus_block_info(x_num=block_info, scale=scale)
+            elif len(block_info) == 2:
+                parsed_block_infos = [{"bn": block_info[0], "bl": block_info[1], "sid": None}]
+            elif len(block_info) == 4:
+                parsed_block_infos = [{"bn": block_info[0:3], "bl": block_info[3], "sid": None}]
+            else:
+                parsed_block_infos = [{"bn": block_info[:2], "bl": block_info[2], "sid": None}]
         else:
-            parsed_block_infos = [{"bn": block_info.split("/")[0][:2], "bl": block_info.split("/")[0][2], "sid": block_info.split("/")[1]}]
+            if "+" in block_info:
+                parsed_block_infos = parse_plus_block_info(x_num=block_info, scale=scale)
+            elif len(block_info) == 3:
+                parsed_block_infos = [{"bn": block_info[:2], "bl": block_info[2], "sid": None}]
+            else:
+                parsed_block_infos = [{"bn": block_info.split("/")[0][:2], "bl": block_info.split("/")[0][2], "sid": block_info.split("/")[1]}]
         
         for pbi in parsed_block_infos:
             bn = pbi["bn"]

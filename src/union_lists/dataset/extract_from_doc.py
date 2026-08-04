@@ -306,6 +306,10 @@ def postcorrect_df(df, file_id):
         assert df.loc[93, "Post-1905_2"] == 'Bihar  only /// note'
         df.loc[93, "Post-1905_2"] = 'X/9053/72F/14  1939 /// ref\nBihar only /// note'
 
+    if file_id == "73C":
+        # errant space in reference
+        assert df.loc[11, "Post-1905_2"] == 'X/9051/73L+ P  1912 /// ref\npart extended east for coastal area /// note\nX/9051/73L+P+74 I  1934 /// ref\nparts extended east and south for coastal area /// note\nX/13104/73L+P+74 I  1934 /// ref\nparts extended east and south for coastal area /// note'
+        df.loc[11, "Post-1905_2"] = 'X/9051/73L+P 1912 /// ref\npart extended east for coastal area /// note\nX/9051/73L+P+74I 1934 /// ref\nparts extended east and south for coastal area /// note\nX/13104/73L+P+74I 1934 /// ref\nparts extended east and south for coastal area /// note'
     return df
 
 
@@ -314,12 +318,12 @@ if __name__ == "__main__":
     ms_ns = {ns.split("=")[0][6:]: ns.split("=")[1].strip('"') for ns in ns_raw}
     [ET.register_namespace(prefix, uri) for prefix, uri in ms_ns.items()];
 
-    SCALE = "One Inch"
+    SCALE = "Quarter Inch"
 
     docx_files = glob.glob(f"{INTERIM_DATA_DIR}/{SCALE}/*.docx")
-    docx_files = [x for x in docx_files if "~" not in x and "(2)" not in x]
+    docx_files = [x for x in docx_files if "\\~" not in x and "(2)" not in x]
     docx_files = [x for x in docx_files if "_mod" not in x]
-    scale_docs = {"Quarter Inch": 39, "Half Inch": 38, "One Inch": 44}
+    scale_docs = {"Quarter Inch": 45, "Half Inch": 38, "One Inch": 44}
     assert len(docx_files) == scale_docs[SCALE]
 
     print(f"{SCALE}: Extracting text and cleaning tables")
