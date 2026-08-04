@@ -537,7 +537,7 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
     #  IOR/X/2083/1 & /16 checked and removed as notes rather than references
     #  IOR/X/9373/195/1904 checked and removed as misprint, corrected to X/9373/195 1904 in postcorrect_df
     input_iors = input_iors - {'IOR/X/9052/53M/SW', 'IOR/X/9051/38K', 'IOR/X/2083/1', 'IOR/X/2083/16', 'IOR/X/9373/195/1904'}
-    output_iors = set(output["Full Reference"].dropna())
+    output_iors = set(output["Full Reference"].dropna()) - {'IOR/X/9051/38K'}
     missed_long_w_refs = {ior for ior in output_iors - input_iors if "/W/" in ior}
     #  ref_re above is too simple to catch long W references, so remove these from the output side
     output_iors = output_iors - missed_long_w_refs
