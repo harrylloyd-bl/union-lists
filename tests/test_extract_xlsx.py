@@ -6,6 +6,7 @@ import union_lists.dataset.extract_from_xlsx as xlsx_extract
 
 def test_pre_process_xlsx():
     df = pd.read_excel("tests/Block 2.xlsx")
+    df.loc[5, "Unnamed: 3"] = ' '
 
     result = xlsx_extract.pre_process_xlsx(df, file_id="Block 2")
     
@@ -26,4 +27,4 @@ def test_pre_process_xlsx():
 
     assert result["block_letter"].dropna().equals(result["block_letter"].dropna().str.strip())
 
-    assert result["date_1"].dropna().values.tolist() == ["1956", "1944", "1955"]
+    assert result["date_1"].dropna().values.tolist() == ["1956", "1966", "1944", "1955"]
