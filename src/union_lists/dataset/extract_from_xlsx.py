@@ -6,10 +6,10 @@ import re
 import pandas as pd
 from pandas.api.types import is_string_dtype
 
-from union_lists.config import RAW_DATA_DIR
+from union_lists.config import RAW_DATA_DIR, INTERIM_DATA_DIR
 
 
-def copy_to_col(df: pd.DataFrame, idx: pd.Index, col_1: str, col_2: str) -> None:
+def copy_to_col(df: pd.DataFrame, idx: pd.Index|list[int|str], source: str, destination: str) -> None:
     """Copy values from one column to another and clear the copied from cells
 
     Args:
@@ -21,8 +21,23 @@ def copy_to_col(df: pd.DataFrame, idx: pd.Index, col_1: str, col_2: str) -> None
     Returns:
         None
     """
-    df.loc[idx, col_2] = df.loc[idx, col_1]
-    df.loc[idx, col_1] = pd.NA
+    if destination == "notes":
+        if not is_string_dtype(df[destination].dtype):
+            raise ValueError("Notes column doesn't have string dtype")
+        
+        if df.loc[idx, destination].isna().any():
+            raise ValueError("NaN values in Notes column won't be copied to correctly")
+        
+        non_empty_notes = df.loc[idx][df.loc[idx, destination] != ""].index
+        
+        df.loc[non_empty_notes, "notes"] += "\n"
+        df.loc[idx, destination] += f"Note copied from {source.capitalize().replace("_", " ")}: " + df.loc[idx, source].astype(str)
+    else:
+        df.loc[idx, destination] = df.loc[idx, source].astype(df[destination].dtype)
+        if df.loc[idx, destination].isna().any():
+            raise ValueError(f"Some copied entries are NaN, check dtypes: col_1 has dtype {df[source].dtype}; col_2 has dtype {df[destination].dtype}")
+
+    df.loc[idx, source] = pd.NA
     return None
 
 
@@ -54,7 +69,7 @@ def clean_coloured(coloured: pd.Series) -> pd.Series:
     Deduplicate xx -> x
     apply .lower()
     Strip trailing hyphens
-    Convert 0/- to x (have checked in source that this is appropriate)
+    Convert 0 and - to x (have checked in source that this is appropriate)
 
     Args:
         dates (pd.Series): Date column from a dataframe to operate on
@@ -62,7 +77,7 @@ def clean_coloured(coloured: pd.Series) -> pd.Series:
     Returns:
         pd.Series: Cleaned date column
     """    
-    coloured = coloured.str.lower()
+    coloured = coloured.str.lower().str.strip()
     coloured = coloured.replace("z", "x").str.replace("0", "x").str.replace("xx", "x")
     coloured = coloured.str.replace("^-$", "x", regex=True).str.replace("x-", "x")
     coloured = coloured.where(lambda x: x != ".")
@@ -71,9 +86,9 @@ def clean_coloured(coloured: pd.Series) -> pd.Series:
 
 def clean_gridded(gridded: pd.Series) -> pd.Series:
     """Clean a Gridded column
-    Replace z -> x
-    apply .lower()
-    Strip trailing hyphens
+    Replace xx -> x
+    apply .strip()
+    Convert spaces to pd.NA
 
     Args:
         dates (pd.Series): Date column from a dataframe to operate on
@@ -81,9 +96,141 @@ def clean_gridded(gridded: pd.Series) -> pd.Series:
     Returns:
         pd.Series: Cleaned date column
     """    
-    gridded = gridded.str.replace("xx", "x")
     gridded = gridded.where(lambda x: x != " ")
+    gridded = gridded.str.strip()
+    gridded = gridded.str.replace("xx", "x")
     return gridded
+
+
+def clean_copies(copies: pd.Series) -> pd.Series:
+    """Clean a Copies column
+    Replace x -> 1
+
+    Args:
+        copies (pd.Series): Copies column from a dataframe to operate on
+
+    Returns:
+        pd.Series: Cleaned Copies column
+    """
+    copies = copies.str.strip()
+    copies = copies.str.replace("x$", "1", regex=True)
+    return copies
+
+
+def apply_manual_corrections(df: pd.DataFrame, file_id: str) -> tuple[pd.DataFrame, str]:
+    """Apply a series of manual corrections to the source files
+    In general for edge cases with one or at most several members
+
+    Args:
+        df (pd.DataFrame): Dataframe to apply correction to
+        file_id (str): file id to select which corrections to apply
+
+    Returns:
+        tuple[pd.DataFrame, str]: Corrected dataframe and file id
+    """
+
+    if file_id == "Block 34":
+        assert df.loc[263, "copies_2"] == datetime.datetime(year=2017, month=3, day=2)
+        df.loc[263, "copies_2"] = "2/3"
+
+    elif file_id == "Block 38":
+        assert df.loc[172, "gridded_2"] == "`"
+        df.loc[172, "gridded_2"] = pd.NA
+
+    elif file_id == "Block 53":
+        assert df.loc[383, "date_1"] == "Se 53 H3"
+        df.loc[383, "date_1"] = "See 53 H3"
+
+        assert df.loc[121, "date_4"] == 2
+        df.loc[121, "date_4"] = pd.NA
+        df.loc[121, "notes"] = "Note added during processing: 2 recorded in source `Date 4` column, erroneous but possibly indicating two copies of this map\n"
+
+    elif file_id == "Block 54":
+        assert df.loc[205, "drawer"] == "410-"
+        df.loc[205, "drawer"] = 410
+
+    elif file_id == "Block 57":
+        assert df.loc[342, "date_1"] == 19141
+        df.loc[342, "date_1"] = 1914
+
+    elif file_id == "Block 58":
+        assert df.loc[386, "date_1"] == "19 28"
+        df.loc[386, "date_1"] = "1928"
+
+    elif file_id == "Block 62":
+        assert df.loc[[72, 75, 78, 82, 85, 88], "repmat"].to_list() == ["   2copies", 2, 2, 2, 2, 2]
+        df.loc[[72, 75, 78, 82, 85, 88], "repmat"] = ["2 copies", "2 copies", "2 copies", "2 copies", "2 copies", "2 copies"]
+        df["notes"] = ""
+
+    elif file_id == "Block 63":
+        # block_letter col in wrong place
+        df["block_letter"] = df["block_number"]
+
+    elif file_id == "Block 65":
+        assert df.loc[403, "date_2"] == "O2/O3/O6 all on same map"
+        df.loc[403, "date_2"] = pd.NA
+        df.loc[403, "notes"] = "Note copied from Date 1: O2/O3/O6 all on same map\n"
+
+        assert df.loc[406, "date_1"] == "See O2"
+        df.loc[406, "date_1"] = 1933
+        df.loc[406, "notes"] = "Note copied from Date 1: O2/O3/O6 all on same map\n"
+
+        assert df.loc[411, "date_1"] == "See O2"
+        df.loc[411, "date_1"] = 1933
+        df.loc[411, "notes"] = "Note copied from Date 1: O2/O3/O6 all on same map\n"
+
+    elif file_id == "Block 72":
+        assert df.loc[263, "date_1"] == 19174
+        df.loc[263, "date_1"] = 1917
+
+    elif file_id == "Block 73":
+        assert df.loc[192, "date_1"] == "6          1929?1928"
+        df.loc[192, "date_1"] = "1929?1928"
+
+    elif file_id == "Block 78":
+        # Mistaken 0 due to a formula being used for this specific cell
+        assert df.loc[287, "gridded_1"] == 0
+        df.loc[287, "gridded_1"] = pd.NA
+
+    elif file_id == "Block 83":
+        assert df.loc[95, "shelfmark"] == "X`14202"
+        df.loc[95, "shelfmark"] = "X14202"
+
+    elif file_id == "Block 84":
+        assert df.loc[41, "drawer"] == "?1955"
+        df.loc[41, "drawer"] = "3107/3108"
+
+        assert df.loc[41, "repmat"] == " 3107/3108"
+        df.loc[41, "repmat"] = pd.NA
+        df.loc[41, "copies_1"] += " 3107/3108"
+
+        assert df.loc[586, "date_1"] == "P3 includes part of 84 P7 and part  of 84 L15"
+        assert df.loc[570, "date_1"] == "1903-1938"
+        df.loc[570, "notes"] = "Note copied from Date 1: P3 includes part of 84 P7 and part of 84 L15\n"
+        df = df.drop(index=[585, 586])
+
+    elif file_id == "Block 86template":
+        file_id = "Block 86"
+
+    elif file_id == "Block 93":
+        assert df.loc[402, "date_1"] == 145
+        df.loc[402, "date_1"] = 1945
+
+    elif file_id == "Block 94":
+        assert df.loc[309, "date_1"] == 19271927
+        df.loc[309, "date_1"] = 1927
+
+        assert df.loc[53, "date_2"] == datetime.datetime(year=1907, month=6, day=1)
+        df.loc[53, "date_2"] = 1907
+
+        assert df.loc[54, "date_2"] == datetime.datetime(year=1905, month=4, day=28)
+        df.loc[54, "date_2"] = 1905
+
+        assert df.loc[55, "date_2"] == datetime.datetime(year=1905, month=3, day=30)
+        df.loc[55, "date_2"] = 1905
+
+    return df, file_id
+
 
 def pre_process_xlsx(df: pd.DataFrame, file_id: str) -> pd.DataFrame:
     columns = [
@@ -97,98 +244,18 @@ def pre_process_xlsx(df: pd.DataFrame, file_id: str) -> pd.DataFrame:
     ]
 
     if df.shape[1] == 30:
-        df['notes'] = pd.NA
+        df['notes'] = ""
 
     file_id = file_id.capitalize()
 
     df = df.iloc[5:].reset_index(drop=True)
     df.columns = columns
+
+    na_notes_idx = df["notes"][df["notes"].isna()].index
     df["notes"] = df["notes"].astype(str)
+    df.loc[na_notes_idx, "notes"] = ""
 
-    if file_id == "Block 38":
-        assert df.loc[172, "gridded_2"] == "`"
-        df.loc[172, "gridded_2"] = pd.NA
-
-    if file_id == "Block 53":
-        assert df.loc[383, "date_1"] == "Se 53 H3"
-        df.loc[383, "date_1"] = "See 53 H3"
-
-        assert df.loc[121, "date_4"] == 2
-        df.loc[121, "date_4"] = pd.NA
-        df.loc[121, "notes"] = "2 recorded in source `Date 4` column, erroneous but possibly indicating two copies of this map"
-
-    if file_id == "Block 54":
-        assert df.loc[205, "drawer"] == "410-"
-        df.loc[205, "drawer"] = 410
-
-    if file_id == "Block 57":
-        assert df.loc[342, "date_1"] == 19141
-        df.loc[342, "date_1"] = 1914
-
-    if file_id == "Block 58":
-        assert df.loc[386, "date_1"] == "19 28"
-        df.loc[386, "date_1"] = "1928"
-
-    if file_id == "Block 63":
-        # block_letter col in wrong place
-        df["block_letter"] = df["block_number"]
-
-    if file_id == "Block 65":
-        assert df.loc[403, "date_2"] == "O2/O3/O6 all on same map"
-        df.loc[403, "date_2"] = pd.NA
-        df.loc[403, "notes"] = "O2/O3/O6 all on same map"
-
-        assert df.loc[406, "date_1"] == "See O2"
-        df.loc[406, "date_1"] = 1933
-        df.loc[406, "notes"] = "O2/O3/O6 all on same map"
-
-        assert df.loc[411, "date_1"] == "See O2"
-        df.loc[411, "date_1"] = 1933
-        df.loc[411, "notes"] = "O2/O3/O6 all on same map"
-
-    if file_id == "Block 72":
-        assert df.loc[263, "date_1"] == 19174
-        df.loc[263, "date_1"] = 1917
-
-    if file_id == "Block 73":
-        assert df.loc[192, "date_1"] == "6          1929?1928"
-        df.loc[192, "date_1"] = "1929?1928"
-
-    if file_id == "Block 78":
-        # Mistaken 0 due to a formula being used for this specific cell
-        assert df.loc[287, "gridded_1"] == 0
-        df.loc[287, "gridded_1"] = pd.NA
-
-    if file_id == "Block 83":
-        assert df.loc[95, "shelfmark"] == "X`14202"
-        df.loc[95, "shelfmark"] = "X14202"
-
-    if file_id == "Block 84":
-        assert df.loc[586, "date_1"] == "P3 includes part of 84 P7 and part  of 84 L15"
-        assert df.loc[570, "date_1"] == "1903-1938"
-        df.loc[570, "notes"] = "P3 includes part of 84 P7 and part of 84 L15"
-        df = df.drop(index=[585, 586])
-
-    if file_id == "Block 86template":
-        file_id = "Block 86"
-
-    if file_id == "Block 93":
-        assert df.loc[402, "date_1"] == 145
-        df.loc[402, "date_1"] = 1945
-
-    if file_id == "Block 94":
-        assert df.loc[309, "date_1"] == 19271927
-        df.loc[309, "date_1"] = 1927
-
-        assert df.loc[53, "date_2"] == datetime.datetime(year=1907, month=6, day=1)
-        df.loc[53, "date_2"] = 1907
-
-        assert df.loc[54, "date_2"] == datetime.datetime(year=1905, month=4, day=28)
-        df.loc[54, "date_2"] = 1905
-
-        assert df.loc[55, "date_2"] == datetime.datetime(year=1905, month=3, day=30)
-        df.loc[55, "date_2"] = 1905
-
+    df, file_id = apply_manual_corrections(df, file_id)
 
     block_number = file_id.split()[1]
     df["block_number"] = block_number
@@ -198,51 +265,74 @@ def pre_process_xlsx(df: pd.DataFrame, file_id: str) -> pd.DataFrame:
     df["drawer"] = df["drawer"].astype("str")
     df["shelfmark"] = df["shelfmark"].astype("str")
     
+    # block_letter_re = re.compile("[A-P]$")
+    # sheet_id_re = re.compile(r"\d{1,2}$")
+    # date_re = re.compile(r"\d{4,4}$")
+    # drawer_re = re.compile(r"[0-9/]+$")
+    # shelfmark_re = re.compile(r"[xXD0-9\[\]]+$")
     grid_color_re = re.compile(r"x$")
+    copy_re = re.compile(r"[\d/]{1,3}$|S$")
 
     for i in range(1, 7):
-        df[f"date_{i}"] = df[f"date_{i}"].astype("str")
-        df[f"date_{i}"] = clean_dates(df[f"date_{i}"])
+        df[f"date_{i}"] = clean_dates(df[f"date_{i}"].astype(str))
         # TODO convert to int if forcing all hyphen/? dates to pure date
         # df[f"date_{i}"] = df[f"date_{i}"].astype("Int64")
 
-        df[f"coloured_{i}"] = df[f"coloured_{i}"].astype("str")
-        df[f"coloured_{i}"] = clean_coloured(df[f"coloured_{i}"])
+        df[f"coloured_{i}"] = clean_coloured(df[f"coloured_{i}"].astype(str))
+        df[f"gridded_{i}"] = clean_gridded(df[f"gridded_{i}"].astype(str))
+        df[f"copies_{i}"] = clean_copies(df[f"copies_{i}"].astype(str))
 
-        df[f"gridded_{i}"] = df[f"gridded_{i}"].astype("str")
-        df[f"gridded_{i}"] = clean_gridded(df[f"gridded_{i}"])
+        bad_coloured = df.dropna(subset=f"coloured_{i}")[df[f"coloured_{i}"].dropna().apply(lambda x: grid_color_re.match(x)).isna()]
+        if not bad_coloured.empty:
+            # breakpoint()
+            raise ValueError(f"Incorrectly formatted Coloured entries at idx: {bad_coloured.index}")
 
-        grid_idx_to_copy = df[f"gridded_{i}"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna().index
+        # breakpoint()
+        grid_idx_to_copy = df.dropna(subset=f"gridded_{i}")[df[f"gridded_{i}"].dropna().apply(lambda x: grid_color_re.match(x)).isna()].index
         copy_to_col(df, grid_idx_to_copy, f"gridded_{i}", "notes")
-        bad_gridded = df.dropna(subset=f"gridded_{i}").loc[:,:f"gridded_{i}"][df[f"gridded_{i}"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()]
+        bad_gridded = df.dropna(subset=f"gridded_{i}")[df[f"gridded_{i}"].dropna().apply(lambda x: grid_color_re.match(x)).isna()]
         if not bad_gridded.empty:
             raise ValueError(f"Incorrectly formatted Gridded entries at idx: {bad_gridded.index}")
+
+        # breakpoint()
+        copies_idx_to_copy = df.dropna(subset=f"copies_{i}")[df[f"copies_{i}"].dropna().apply(lambda x: copy_re.match(x)).isna()].index
+        copy_to_col(df, copies_idx_to_copy, f"copies_{i}", "notes")
+        bad_copies = df.dropna(subset=f"copies_{i}")[df[f"copies_{i}"].dropna().apply(lambda x: copy_re.match(x)).isna()]
+        if not bad_copies.empty:
+            raise ValueError(f"Incorrectly formatted Copies entries at idx: {bad_copies.index}")
 
     for col in df.columns:
         if is_string_dtype(df[col]):
             df[col] = df[col].str.strip()
 
+    df["notes"] = df["notes"].where(df["notes"] != "")
+
     block_letter_re = re.compile("[A-P]")
     idx_to_copy = df.dropna(subset="block_letter")[df["block_letter"].dropna().apply(lambda x: block_letter_re.match(x)).isna()].index
     copy_to_col(df, idx_to_copy, "block_letter", "date_1")
+
     bad_block_letters = df.dropna(subset="block_letter")[df["block_letter"].dropna().apply(lambda x: block_letter_re.match(x)).isna()]
     if not bad_block_letters.empty:
         raise ValueError(f"Incorrectly formatted block letters at idx: {bad_block_letters.index}")
+
     # ffill has to come after regex check on columns
-    # df["block_letter"] = df["block_letter"].ffill()
+    df["block_letter"] = df["block_letter"].ffill()
 
     sheet_id_re = re.compile(r"\d{1,2}")
     bad_sheet_ids = df.dropna(subset="sheet_id")[df["sheet_id"].dropna().astype(str).apply(lambda x: sheet_id_re.match(x)).isna()]
     if not bad_sheet_ids.empty:
         raise ValueError(f"Incorrectly formatted sheet ids at idx: {bad_sheet_ids.index}")
-    # df["sheet_id"] = df["sheet_id"].ffill()
+
+    df["sheet_id"] = df["sheet_id"].ffill()
+
+    df["shelfmark"] = df["shelfmark"].str.upper().str.replace("X", "X/")
 
     return df
 
 
-    def annotate_uncertain_dates(df: pd.DataFrame) -> pd.DataFrame:
-        # TODO pass any dates with question marks to the notes column
-        return df
+def annotate_uncertain_dates(df: pd.DataFrame) -> pd.DataFrame:
+    # TODO pass any dates with question marks to the notes column
+    return df
 
 
 if __name__ == "__main__":
@@ -251,3 +341,4 @@ if __name__ == "__main__":
     xlsx_files = [x for x in xlsx_files if "\\~" not in x and "(2)" not in x]
     dfs = {os.path.basename(x).split(".")[0]: pd.read_excel(x) for x in xlsx_files}
     clean_dfs = {block: pre_process_xlsx(df, block) for block, df in dfs.items()}
+    [df.to_csv(f"{INTERIM_DATA_DIR}/{SCALE}/{block}.csv", encoding="utf-8-sig", index=False) for block, df in clean_dfs.items()]
