@@ -622,7 +622,6 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.Da
     entry_template["Repmat"] = row.loc["repmat"]
     entry_template["Notes"] = row.loc["notes"]
 
-    # TODO see issue #19
     entry_template["Location Detail"] = int(row.loc["drawer"])
 
     # Related References
