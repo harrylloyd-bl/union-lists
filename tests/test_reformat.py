@@ -130,3 +130,86 @@ def test_process_6col_row():
     }
 
     assert result[0] == expected
+
+
+def test_process_xlsx_row():
+    
+    test_row = pd.Series({
+        "block_number": 3,
+        "block_letter": "A",
+        "sheet_id": 3,
+        "date_1": 1945,
+        "date_2": pd.NA,
+        "date_3": pd.NA,
+        "date_4": pd.NA,
+        "date_5": pd.NA,
+        "date_6": pd.NA,
+        "drawer": 2956.0,
+        "shelfmark": "X/14251",
+        "coloured_1": "x",
+        "coloured_2": pd.NA,
+        "coloured_3": pd.NA,
+        "coloured_4": pd.NA,
+        "coloured_5": pd.NA,
+        "coloured_6": pd.NA,
+        "gridded_1": "x",
+        "gridded_2": pd.NA,
+        "gridded_3": pd.NA,
+        "gridded_4": pd.NA,
+        "gridded_5": pd.NA,
+        "gridded_6": pd.NA,
+        "copies_1": 2.0,
+        "copies_2": pd.NA,
+        "copies_3": pd.NA,
+        "copies_4": pd.NA,
+        "copies_5": pd.NA,
+        "copies_6": pd.NA,
+        "repmat": pd.NA,
+        "notes": pd.NA
+    })
+
+    result = data.process_xlsx_row(row=test_row, source="TEST.xlsx", scale="One Inch", combined_df=pd.DataFrame())
+
+    expected = [
+    {
+        "Source File": "TEST.xlsx",
+        "Series Title": f"Survey of India India and Adjacent Countries One Inch Series",
+        "Scale": "63,360",
+        "Published": "Y",
+        "Location Room": "UGF",
+        "Location Section": None,  # dict lookup with external resource, out of scope currently, see Issue #2
+        "Location Detail": None,  # dict lookup with external resource, out of scope currently, see Issue #2
+        "Full Reference": "IOR/X/14251/3A/3",
+        "Print Date": "1945",
+        "Time Period": ">1905",
+        "Parent Reference": "IOR/X/14251",
+        "Post-1905 Related References": "", # Introduced with Issue #3
+        "1886-1905 Related References": "", # Introduced with Issue #3
+        "Pre-1886 Related References": "", # Introduced with Issue #3
+        "Post-1905 Block Number": "3",
+        "Post-1905 Block Letter": "A",
+        "Post-1905 Sheet ID": "3",
+        "1886-1905 New Sheet ID": None,
+        "1886-1905 Old Sheet ID": None,
+        "Pre-1886 New Sheet ID": None,
+        "Pre-1886 Old Sheet ID": None,
+        "Sheet Title": None,
+        "Edition Number": None,
+        "Edition Date": "",
+        "Designation_1": None,
+        "Designation_2": None,
+        "Publication Date": None,
+        "Print Reference": None,
+        "Copies Printed": None,
+        "Coloured": True,
+        "Gridded": True,
+        "Number of Copies": '2',
+        "Repmat": pd.NA,
+        "Latitude": None,
+        "Longitude": None,
+        "Available": None,
+        "Notes": pd.NA
+    }
+    ]
+
+    assert result == expected

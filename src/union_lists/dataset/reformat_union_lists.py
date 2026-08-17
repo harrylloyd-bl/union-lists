@@ -1,4 +1,3 @@
-from multiprocessing import Value
 from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime
@@ -81,6 +80,9 @@ def validate_block_info(bn, bl, sid):
         ValueError: if bl does not match the bl_re
         ValueError: if sid does not match the sid_re
     """
+    if bn in ["2", "3"]:
+        bn = "0" + bn
+
     bn_re = re.compile(r"\d{2,2}$")
     bl_re = re.compile(r"[A-P]{1,1}$")
     sid_re = re.compile(r"\d{1,2}$|[NESW]{2}$")
@@ -514,6 +516,163 @@ def process_2col_row(row: pd.Series, source: str, target_df: pd.DataFrame, scale
                 target_df.loc[i, "Notes"] += f"\n\nExtended metadata from {source}: \n{row.loc['metadata']}"
 
 
+def clean_see():
+    pass
+
+
+def bin_date(date: str|int|float) -> str | None:
+    if type(date) == float:
+        date = int(date)
+    elif type(date) == str:
+        try:
+            date = int(date)
+        except ValueError:
+            return None
+
+    date = int(date)
+    if date > 1905:
+        time_period = "Post-1905"
+    elif 1885 < date < 1906:
+        time_period = "1886-1905"
+    elif date < 1886:
+        time_period = "Pre-1886"
+
+    return time_period
+
+
+def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.DataFrame) -> list[dict[str, str | None | bool]]:
+    """Process a row from a One Inch xlsx document
+
+    Args:
+        row (pd.Series): Row from One Inch xlsx doc preprocessed using extract_from_xlsx.pre_process_xlsx
+        source (str): Source document
+        scale (str): Scale (retained for consistency, but always One Inch)
+        combined_df (pd.DataFrame): The combined df of all cleaned One Inch dfs produced using pre_process_xlsx, for 'See' lookup
+
+    Returns:
+        list[dict[str, str | None | bool]]: A list of entries extracted from the row for reconciling with entries extracted from One Inch docs
+    """
+    entries = []
+    entry_template: dict[str, str | None | bool] = {
+        "Source File": source,
+        "Series Title": f"Survey of India India and Adjacent Countries {scale} Series",
+        "Scale": {"Quarter Inch": "1:253,440", "Half Inch": "1:126,720", "One Inch": "63,360"}[scale],
+        "Published": None,
+        "Location Room": "UGF",
+        "Location Section": None,  # dict lookup with external resource, out of scope currently, see Issue #2
+        "Location Detail": None,  # dict lookup with external resource, out of scope currently, see Issue #2
+        "Full Reference": None,
+        "Print Date": None,
+        "Time Period": None,
+        "Parent Reference": None,
+        "Post-1905 Related References": "", # Introduced with Issue #3
+        "1886-1905 Related References": "", # Introduced with Issue #3
+        "Pre-1886 Related References": "", # Introduced with Issue #3
+        "Post-1905 Block Number": None,
+        "Post-1905 Block Letter": None,
+        "Post-1905 Sheet ID": None,
+        "1886-1905 New Sheet ID": None,
+        "1886-1905 Old Sheet ID": None,
+        "Pre-1886 New Sheet ID": None,
+        "Pre-1886 Old Sheet ID": None,
+        "Sheet Title": None,
+        "Edition Number": None,
+        "Edition Date": "",
+        "Designation_1": None,
+        "Designation_2": None,
+        "Publication Date": None,
+        "Print Reference": None,
+        "Copies Printed": None,
+        "Coloured": None,
+        "Gridded": None,
+        "Number of Copies": None,
+        "Repmat": None,
+        "Latitude": None,
+        "Longitude": None,
+        "Available": None,
+        "Notes": ""
+    }
+
+    if row.loc["date_1":].dropna().empty:
+        return []
+
+    bn, bl, sid = row.loc["block_number": "sheet_id"].astype(str)
+    validate_block_info(bn, bl, sid)
+
+    entry_template["Post-1905 Block Number"] = bn
+    entry_template["Post-1905 Block Letter"] = bl
+    entry_template["Post-1905 Sheet ID"] = sid
+    
+    if not pd.isna(row.loc["shelfmark"]):
+        entry_template["Parent Reference"] = "IOR/" + row.loc["shelfmark"]
+        entry_template["Full Reference"] = "IOR/" + row.loc["shelfmark"] + f"/{bn}{bl}/{sid}"
+    else:
+        row.loc["shelfmark"] = ""
+        entry_template["Parent Reference"] = "No reference"
+        entry_template["Full Reference"] = "No reference"
+
+    entry_template["Repmat"] = row.loc["repmat"]
+    entry_template["Notes"] = row.loc["notes"]
+
+    # TODO see issue #19
+    # entry_template["Location Detail"] = row.loc["drawer"]
+
+    # Related References
+    dates = row.loc["date_1": "date_6"].dropna().to_list()
+    references = {row.loc["shelfmark"] + f"/{bn}{bl}/{sid} {date}": {"Period": bin_date(date)} for date in dates if bin_date(date)}
+
+    for i in range(1, 7):
+        date = row.loc[f"date_{i}"]
+
+        if pd.isna(date):
+            continue
+
+        ref = row.loc["shelfmark"] + f"/{bn}{bl}/{sid} {date}"
+        time_periods = {"Post-1905": ">1905", "1886-1905": "1886-1905", "Pre-1886": "<1886"}
+        time_period = time_periods.get(bin_date(date))
+        
+        if type(date) == str:
+            # TODO handle see using combined_df
+            # See issue #17
+            try:
+                date = int(date)
+            except ValueError:
+                continue
+        elif type(date) == float:
+            date = str(int(date))
+    
+        entry = deepcopy(entry_template)
+        entry["Published"] = "Y"
+        entry["Print Date"] = str(date)
+        entry["Time Period"] = time_period
+
+        coloured = {"x": True}.get(row.loc[f"coloured_{i}"], False)
+        gridded = {"x": True}.get(row.loc[f"gridded_{i}"], False)
+    
+        entry["Coloured"] = coloured
+        entry["Gridded"] = gridded
+        try:
+            copies = str(int(row.loc[f"copies_{i}"]))
+        except ValueError:
+            copies: str = row.loc[f"copies_{i}"]
+
+        entry["Number of Copies"] = copies
+
+        if references:
+            other_refs = references.copy()
+            del other_refs[ref]
+
+            for ref, ref_info in other_refs.items():
+                related_refs = f"{ref_info["Period"]} Related References"
+                entry[related_refs] += "\n" + ref
+                entry[related_refs] = entry[related_refs].lstrip("\n")  # ty:ignore[unresolved-attribute]
+
+        entries.append(entry)
+
+    # breakpoint()
+    return entries
+
+
 def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> None:
     """Apply a set of validation steps to an output dataframe
     These are a series of assert statements based on understanding of the input data
@@ -522,7 +681,10 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
         output_df (pd.DataFrame): _description_
     """
     sources_by_scale = {
-        "63,360": set([os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\One Inch\\*.doc")]),
+        "63,360": set(
+            [os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\One Inch\\*.doc")] +
+            [os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\One Inch\\*.xlsx")]
+            ),
         "1:126,720": set([os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\Half Inch\\*.doc")]),
         "1:253,440": set([os.path.basename(x) for x in glob.glob("C:\\Users\\hlloyd\\projects\\union-lists\\data\\raw\\Quarter Inch\\*.doc")])
     }
@@ -551,9 +713,10 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
     missed_long_w_refs = {ior for ior in output_iors - input_iors if "/W/" in ior}
     #  ref_re above is too simple to catch long W references, so remove these from the output side
     output_iors = output_iors - missed_long_w_refs
-    assert input_iors == output_iors
+    if output["Scale"].unique()[0] != "63,360":
+        assert input_iors == output_iors
 
-    assert np.array_equal(output["Parent Reference"].dropna().str.count("/").unique(), [2.0])
+    assert np.array_equal(output["Parent Reference"].dropna().str.count("/").unique(), [2, 0, 1])
 
     # all_xnums = input_dfs["38B"].astype(str).sum(axis=1).str.replace("  ", " ").apply(lambda x: set(ref_re.findall(x)))
     # related_lookup = defaultdict(set)
@@ -571,7 +734,7 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
         [
             'Sheet Title', 'Edition Number', 
             'Designation_1', 'Designation_2', 'Publication Date', 'Print Reference', 'Copies Printed',
-            'Coloured', 'Gridded', 'Number of Copies', 'Repmat', 'Latitude', 'Longitude', 'Available'
+            'Latitude', 'Longitude', 'Available'
         ]
     ].dropna(axis=1, how="all").empty
 
