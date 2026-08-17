@@ -13,7 +13,7 @@ from tqdm import tqdm
 import win32com.client as win32
 
 import union_lists.dataset.reformat_union_lists as data
-from union_lists.config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR, LOGS_DIR
+from union_lists.config import RAW_DATA_DIR, INTERIM_DATA_DIR, PROCESSED_DATA_DIR, LOGS_DIR
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_main.log", level=logging.INFO)
@@ -23,6 +23,10 @@ def main():
     print(f"{SCALE}: Reformating tables to new data format")
     block_suffix = {"One Inch": "A", "Half Inch": "B", "Quarter Inch": "C"}[SCALE]
     csv_files = glob.glob(f"{INTERIM_DATA_DIR}/{SCALE}/*.csv")
+    if SCALE == "One Inch":
+        preprocessed_xlsx_files = [x for x in csv_files if "BLOCK" in x.upper()]
+        csv_files = [x for x in csv_files if "BLOCK" not in x.upper()]
+
     scale_docs = {"Quarter Inch": 44, "Half Inch": 34, "One Inch": 40}
     assert len(csv_files) == scale_docs[SCALE]
 
@@ -62,6 +66,31 @@ def main():
             if file_id == "X13104.doc":
                 df["metadata"] = df["metadata"].str.replace("I-", "I").str.replace("J-", "J")
             [data.process_2col_row(row=row, source=file_id, target_df=target_df, scale=SCALE) for (_, row) in df.iterrows()]
+    
+    if SCALE == "One Inch":
+        assert len(preprocessed_xlsx_files) == 37
+        clean_dfs = {}
+        xlsx_entry_dfs = {}
+
+        for f in preprocessed_xlsx_files:
+            file_id = os.path.basename(f).split(".")[0] + ".xlsx"
+            
+            df = pd.read_csv(f, encoding="utf-8-sig")
+            clean_dfs[file_id] = df
+        
+        combined_df = pd.concat([df for df in clean_dfs.values()])
+
+        print("Extracting entries from xlsx rows")
+        with tqdm(clean_dfs.items()) as t:
+            for file_id, df in t:
+                t.set_description(f"{file_id}")
+                entries = []
+                [entries.extend(data.process_xlsx_row(row=row[1], source=file_id, scale=SCALE, combined_df=combined_df)) for row in df.iterrows()]
+                
+                entry_df = pd.concat([pd.DataFrame(x, index=[0]) for x in entries]).reset_index(drop=True)
+                xlsx_entry_dfs[file_id] = entry_df
+
+        output_df = pd.concat([output_df, pd.concat([df for df in xlsx_entry_dfs.values()])])
 
     output_df.to_csv(f"{PROCESSED_DATA_DIR}/v0.8_{SCALE.lower().replace(' ', '_')}_sample.csv", encoding="utf-8-sig", index=False)
     output_df.to_excel(f"{PROCESSED_DATA_DIR}/v0.8_{SCALE.lower().replace(' ', '_')}_sample.xlsx", index=False)
