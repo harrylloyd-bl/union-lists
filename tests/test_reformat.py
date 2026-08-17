@@ -178,7 +178,7 @@ def test_process_xlsx_row():
         "Published": "Y",
         "Location Room": "UGF",
         "Location Section": None,  # dict lookup with external resource, out of scope currently, see Issue #2
-        "Location Detail": None,  # dict lookup with external resource, out of scope currently, see Issue #2
+        "Location Detail": 2956,  # dict lookup with external resource, out of scope currently, see Issue #2
         "Full Reference": "IOR/X/14251/3A/3",
         "Print Date": "1945",
         "Time Period": ">1905",

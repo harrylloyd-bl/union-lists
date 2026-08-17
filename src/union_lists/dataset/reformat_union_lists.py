@@ -540,7 +540,7 @@ def bin_date(date: str|int|float) -> str | None:
     return time_period
 
 
-def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.DataFrame) -> list[dict[str, str | None | bool]]:
+def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.DataFrame) -> list[dict[str, str | None | bool | int]]:
     """Process a row from a One Inch xlsx document
 
     Args:
@@ -553,7 +553,7 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.Da
         list[dict[str, str | None | bool]]: A list of entries extracted from the row for reconciling with entries extracted from One Inch docs
     """
     entries = []
-    entry_template: dict[str, str | None | bool] = {
+    entry_template: dict[str, str | None | bool | float | int] = {
         "Source File": source,
         "Series Title": f"Survey of India India and Adjacent Countries {scale} Series",
         "Scale": {"Quarter Inch": "1:253,440", "Half Inch": "1:126,720", "One Inch": "63,360"}[scale],
@@ -615,7 +615,7 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.Da
     entry_template["Notes"] = row.loc["notes"]
 
     # TODO see issue #19
-    # entry_template["Location Detail"] = row.loc["drawer"]
+    entry_template["Location Detail"] = int(row.loc["drawer"])
 
     # Related References
     dates = row.loc["date_1": "date_6"].dropna().to_list()
@@ -641,7 +641,7 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.Da
         elif type(date) == float:
             date = str(int(date))
     
-        entry = deepcopy(entry_template)
+        entry: dict[str, str | None | int] = deepcopy(entry_template)  # ty: ignore[invalid-assignment]
         entry["Published"] = "Y"
         entry["Print Date"] = str(date)
         entry["Time Period"] = time_period
@@ -669,7 +669,6 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.Da
 
         entries.append(entry)
 
-    # breakpoint()
     return entries
 
 
