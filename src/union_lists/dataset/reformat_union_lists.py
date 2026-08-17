@@ -521,6 +521,14 @@ def clean_see():
 
 
 def bin_date(date: str|int|float) -> str | None:
+    """Bin a date stored as str/int/flout into one of three string time periods
+
+    Args:
+        date (str | int | float): A date as either a string, int or float
+
+    Returns:
+        str | None: The string time period the input date is in
+    """
     if type(date) == float:
         date = int(date)
     elif type(date) == str:
