@@ -114,6 +114,7 @@ def clean_copies(copies: pd.Series) -> pd.Series:
     """
     copies = copies.str.strip()
     copies = copies.str.replace("x$", "1", regex=True)
+    copies = copies.str.replace(".0", "")  # fix floats
     return copies
 
 
@@ -129,17 +130,63 @@ def apply_manual_corrections(df: pd.DataFrame, file_id: str) -> tuple[pd.DataFra
         tuple[pd.DataFrame, str]: Corrected dataframe and file id
     """
 
-    if file_id == "Block 34":
+    # TODO verify all assertions
+    if file_id == "Block 3":
+        assert df.loc[185, "date_2"] == "see L11/2"
+        df.loc[185, "date_2"] = "see L11 1957"
+
+    elif file_id == "Block 34":
         assert df.loc[263, "copies_2"] == datetime.datetime(year=2017, month=3, day=2)
         df.loc[263, "copies_2"] = "2/3"
 
     elif file_id == "Block 38":
+        assert df.loc[148, "date_1"] == "1943 See 38 K1"
+        df.loc[148, "date_1"] = 1943
+        df.loc[148, "notes"] = "Note added during processing: `Date 1` column read '1943 See 38 K1'"
+
+        assert df.loc[160, "date_1"] == "1943 See 38 j13"
+        df.loc[160, "date_1"] = 1943
+        df.loc[160, "notes"] = "Note added during processing: `Date 1` column read '1943 See 38 J13'"
+
         assert df.loc[172, "gridded_2"] == "`"
         df.loc[172, "gridded_2"] = pd.NA
+
+    elif file_id == "Block 39":
+        assert df.loc[85, "date_2"] == "1928 See D10"
+        df.loc[85, "date_2"] = 1928
+        df.loc[85, "notes"] = "Note added during processing: `Date 2` column read '1928 See D10'"
+
+    elif file_id == "Block 43":
+        assert df.loc[237, "date_1"] == "See 43 F9 Drawer435"
+        df.loc[237, "date_1"] = "See 43 F9"
+
+        assert df.loc[282, "date_1"] == "1932 See F12"
+        df.loc[282, "date_1"] = 1932
+        df.loc[282, "notes"] = "Note added during processing: `Date 1` column read '1932 See F12'"
+
+    elif file_id == "Block 44":
+        assert df.loc[50, "date_1"] == "14  See A10 1908"
+        df.loc[50, "date_1"] = "See A10 1908"
+
+        assert df.loc[452, "date_1"] == "1936 See 44 P2"
+        df.loc[452, "date_1"] = 1936
+        df.loc[452, "notes"] = "Note added during processing: `Date 1` column read '1936 See 44 P2'"
+
+    elif file_id == "Block 45":
+        assert df.loc[64, "date_1"] == "1946 See H3 and H7"
+        df.loc[64, "date_1"] = 1946
+        df.loc[64, "notes"] = "Note added during processing: `Date 1` column read '1946 See H3 and H7'"
+
+        assert df.loc[156, "date_1"] == "1947 See H3"
+        df.loc[156, "date_1"] = 1947
+        df.loc[156, "notes"] = "Note added during processing: `Date 1` column read '1947 See H3'"
 
     elif file_id == "Block 53":
         assert df.loc[383, "date_1"] == "Se 53 H3"
         df.loc[383, "date_1"] = "See 53 H3"
+
+        assert df.loc[486, "date_1"] == "See mK4"
+        df.loc[486, "date_1"] = "See K4"
 
         assert df.loc[121, "date_4"] == 2
         df.loc[121, "date_4"] = pd.NA
@@ -148,6 +195,10 @@ def apply_manual_corrections(df: pd.DataFrame, file_id: str) -> tuple[pd.DataFra
     elif file_id == "Block 54":
         assert df.loc[205, "drawer"] == "410-"
         df.loc[205, "drawer"] = 410
+
+    elif file_id == "Block 55":
+        assert df.loc[202, "date_1"] == r"\see F9"
+        df.loc[202, "date_1"] = "See F9"
 
     elif file_id == "Block 57":
         assert df.loc[342, "date_1"] == 19141
@@ -166,6 +217,22 @@ def apply_manual_corrections(df: pd.DataFrame, file_id: str) -> tuple[pd.DataFra
         # block_letter col in wrong place
         df["block_letter"] = df["block_number"]
 
+        assert df.loc[17, "date_1"] == "6      See A2 1907"
+        df.loc[17, "date_1"] = "See A2 1907"
+
+        assert df.loc[95, "date_1"] == "14 S ee B10 1906"
+        df.loc[95, "date_1"] = "See B10 1906"
+
+        assert df.loc[264, "date_1"] == "See E!!"
+        df.loc[264, "date_1"] = "See E11"
+
+    elif file_id == "Block 64":
+        assert df.loc[496, "date_1"] == "M15     See Block 73 A3"
+        df.loc[496, "date_1"] = "See Block 73 A3"
+
+        assert pd.isna(df.loc[506, "date_1"])
+        df.loc[506, "date_1"] = "See Block 73 A3"
+
     elif file_id == "Block 65":
         assert df.loc[403, "date_2"] == "O2/O3/O6 all on same map"
         df.loc[403, "date_2"] = pd.NA
@@ -183,14 +250,36 @@ def apply_manual_corrections(df: pd.DataFrame, file_id: str) -> tuple[pd.DataFra
         assert df.loc[263, "date_1"] == 19174
         df.loc[263, "date_1"] = 1917
 
+        assert df.loc[250, "date_1"] == "See G10        1935"
+        df.loc[250, "date_1"] = "See G10"
+
+        assert df.loc[251, "date_1"] == "See G10        1935"
+        df.loc[251, "date_1"] = "See G10"
+
     elif file_id == "Block 73":
         assert df.loc[192, "date_1"] == "6          1929?1928"
         df.loc[192, "date_1"] = "1929?1928"
 
+        assert df.loc[458, "date_1"] == "15            See L11"
+        df.loc[458, "date_1"] = "See L11"
+
+        assert df.loc[549, "date_1"] == "1          See 73 L13"
+        df.loc[549, "date_1"] = "See 73 L13"
+
+        assert df.loc[550, "date_1"] == "1           See 73 L14"
+        df.loc[550, "date_1"] = "See 73 L14"
+
+        assert df.loc[8, "date_1"] == "See Block 64 M15"
+        df = df.drop(index=8)
+
     elif file_id == "Block 78":
+        assert df.loc[87, "date_1"] == "Saee D4"
+        df.loc[87, "date_1"] = "See D4"
+
         # Mistaken 0 due to a formula being used for this specific cell
         assert df.loc[287, "gridded_1"] == 0
         df.loc[287, "gridded_1"] = pd.NA
+
 
     elif file_id == "Block 83":
         assert df.loc[95, "shelfmark"] == "X`14202"
@@ -212,6 +301,11 @@ def apply_manual_corrections(df: pd.DataFrame, file_id: str) -> tuple[pd.DataFra
     elif file_id == "Block 86template":
         file_id = "Block 86"
 
+    elif file_id == "Block 92":
+        assert df.loc[115, "date_1"] == "1944 See F15"
+        df.loc[115, "date_1"] = 1944
+        df.loc[115, "notes"] = "Note added during processing: `Date 1` column read '1944 See F15'"
+
     elif file_id == "Block 93":
         assert df.loc[402, "date_1"] == 145
         df.loc[402, "date_1"] = 1945
@@ -219,6 +313,9 @@ def apply_manual_corrections(df: pd.DataFrame, file_id: str) -> tuple[pd.DataFra
     elif file_id == "Block 94":
         assert df.loc[309, "date_1"] == 19271927
         df.loc[309, "date_1"] = 1927
+
+        assert df.loc[319, "date_1"] == "SeeH6/1926"
+        df.loc[319, "date_1"] = "SeeH6 1926"
 
         assert df.loc[53, "date_2"] == datetime.datetime(year=1907, month=6, day=1)
         df.loc[53, "date_2"] = 1907
