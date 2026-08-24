@@ -234,8 +234,8 @@ def test_process_xlsx_row():
         "Publication Date": None,
         "Print Reference": None,
         "Copies Printed": None,
-        "Coloured": True,
-        "Gridded": True,
+        "Coloured": "Y",
+        "Gridded": "Y",
         "Number of Copies": '2',
         "Repmat": pd.NA,
         "Latitude": None,
@@ -283,8 +283,8 @@ def test_combine_doc_xlsx_outputs():
         "Post-1905 Block Number": ["3", "6", "6", "7"],
         "Post-1905 Block Letter": ["A", "A", "A", "A"],
         "Post-1905 Sheet ID": ["1", "1", "1", "1"],
-        "Coloured": [True, True, False, True], 
-        "Gridded": [False, True, True, False], 
+        "Coloured": ["Y", "Y", "N", "Y"], 
+        "Gridded": ["N", "Y", "Y", "N"], 
         "Number of Copies": ["1", pd.NA, "2", "3"], 
         "Repmat": [pd.NA, pd.NA, "2 Copies", pd.NA], 
         "Notes": ["a", pd.NA, "b", "c"]
@@ -319,8 +319,8 @@ def test_combine_doc_xlsx_outputs():
         "Post-1905 Block Number": [3, 6, 7, 6, 7],
         "Post-1905 Block Letter": ["A", "A", "A", "A", "A"],
         "Post-1905 Sheet ID": [1, 1, 1, 1, 1],
-        "Coloured": [True, True, pd.NA, False, True], 
-        "Gridded": [False, True, pd.NA, True, False], 
+        "Coloured": ["Y", "Y", pd.NA, "N", "Y"], 
+        "Gridded": ["N", "Y", pd.NA, "Y", "N"], 
         "Number of Copies": ["1", pd.NA, pd.NA, "2", "3"], 
         "Repmat": [pd.NA, pd.NA, pd.NA, "2 Copies", pd.NA], 
         "Notes": ["1\n\nNotes copied from xlsx source file\na", "2", "3", "b", "c"]
@@ -329,7 +329,6 @@ def test_combine_doc_xlsx_outputs():
     )
     expected = expected.convert_dtypes()
 
-    breakpoint()
     assert result.shape == expected.shape
     assert result.columns.equals(expected.columns)
     assert result.dtypes.equals(expected.dtypes)

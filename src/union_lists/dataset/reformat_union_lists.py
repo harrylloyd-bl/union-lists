@@ -663,8 +663,8 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str) -> list[dict[str, 
         entry["Print Date"] = str(date)
         entry["Time Period"] = time_period
 
-        coloured = {"x": True}.get(row.loc[f"coloured_{i}"], False)
-        gridded = {"x": True}.get(row.loc[f"gridded_{i}"], False)
+        coloured = {"x": "Y"}.get(row.loc[f"coloured_{i}"], "N")
+        gridded = {"x": "Y"}.get(row.loc[f"gridded_{i}"], "N")
     
         entry["Coloured"] = coloured
         entry["Gridded"] = gridded
@@ -726,7 +726,9 @@ def parse_see(idx, row, df_copy: pd.DataFrame) -> None:
     bl, sid = bl.upper(), sid.upper()
     validate_block_info(bn, bl, sid)
 
-    see_query = f"`Post-1905 Block Number` == '{bn}' and `Post-1905 Block Letter` == '{bl}' and `Post-1905 Sheet ID` == '{sid}' and `Location Detail` == {row.loc["Location Detail"]}"
+    see_query = f"`Post-1905 Block Number` == '{bn}' and `Post-1905 Block Letter` == '{bl}' and `Post-1905 Sheet ID` == '{sid}'"
+    if not pd.isna(row.loc["Location Detail"]):
+        see_query += f" and `Location Detail` == {row.loc['Location Detail']}"
     see_lookup = df_copy.query(see_query)
 
     if see_lookup.empty == 0:
@@ -805,8 +807,8 @@ def combine_doc_xlsx_outputs(doc_df: pd.DataFrame, xlsx_df: pd.DataFrame) -> pd.
     doc_xlsx_combined_df = pd.concat([doc_df, xlsx_df.loc[unrepresented_rows]]).reset_index(drop=True)
     doc_xlsx_combined_df["Post-1905 Block Number"] = doc_xlsx_combined_df["Post-1905 Block Number"].astype("Int64")
     doc_xlsx_combined_df["Post-1905 Sheet ID"] = doc_xlsx_combined_df["Post-1905 Sheet ID"].astype("Int64")
-    doc_xlsx_combined_df["Coloured"] = doc_xlsx_combined_df["Coloured"].astype(pd.BooleanDtype())
-    doc_xlsx_combined_df["Gridded"] = doc_xlsx_combined_df["Gridded"].astype(pd.BooleanDtype())
+    doc_xlsx_combined_df["Coloured"] = doc_xlsx_combined_df["Coloured"].astype(pd.StringDtype(na_value=pd.NA))
+    doc_xlsx_combined_df["Gridded"] = doc_xlsx_combined_df["Gridded"].astype(pd.StringDtype(na_value=pd.NA))
     doc_xlsx_combined_df["Number of Copies"] = doc_xlsx_combined_df["Number of Copies"].astype(pd.StringDtype(na_value=pd.NA))
     doc_xlsx_combined_df["Repmat"] = doc_xlsx_combined_df["Repmat"].astype(pd.StringDtype(na_value=pd.NA))
 
