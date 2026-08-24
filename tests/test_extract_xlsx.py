@@ -86,26 +86,31 @@ def test_clean_copies():
 
 
 def test_pre_process_xlsx():
-    df = pd.read_excel("tests/Block 2.xlsx")
-    df.loc[5, "Unnamed: 3"] = ' '
+    simple_df = pd.read_excel("tests/Block 2.xlsx")
+    simple_df.loc[5, "Unnamed: 3"] = ' '
 
-    result = xlsx_extract.pre_process_xlsx(df, file_id="Block 2")
+    simple_result = xlsx_extract.pre_process_xlsx(simple_df, file_id="Block 2")
     
-    assert result.shape == (260, 31)
-    assert (result.index == pd.RangeIndex(0, 260)).all()
-    assert result.columns[0] == "block_number"
-    assert result.columns[-1] == "notes"
-    assert sum([1 for c in result.columns if "date" in c]) == 6
-    assert sum([1 for c in result.columns if "copies" in c]) == 6
-    assert sum([1 for c in result.columns if "gridded" in c]) == 6
+    assert simple_result.shape == (260, 31)
+    assert (simple_result.index == pd.RangeIndex(0, 260)).all()
+    assert simple_result.columns[0] == "block_number"
+    assert simple_result.columns[-1] == "notes"
+    assert sum([1 for c in simple_result.columns if "date" in c]) == 6
+    assert sum([1 for c in simple_result.columns if "copies" in c]) == 6
+    assert sum([1 for c in simple_result.columns if "gridded" in c]) == 6
 
-    count = result.count()
+    count = simple_result.count()
     assert count[["block_number", "block_letter", "sheet_id"]].to_list() == [260, 260, 260]
 
-    assert is_integer_dtype(result["block_number"])
-    assert is_string_dtype(result["block_letter"])
-    assert is_integer_dtype(result["sheet_id"])
+    assert is_integer_dtype(simple_result["block_number"])
+    assert is_string_dtype(simple_result["block_letter"])
+    assert is_integer_dtype(simple_result["sheet_id"])
 
-    assert result["block_letter"].dropna().equals(result["block_letter"].dropna().str.strip())
+    assert simple_result["block_letter"].dropna().equals(simple_result["block_letter"].dropna().str.strip())
 
-    assert result["date_1"].dropna().values.tolist() == ["1956", "1966", "1944", "1955"]
+    assert simple_result["date_1"].dropna().values.tolist() == ["1956", "1966", "1944", "1955"]
+
+    complex_df = pd.read_excel("tests/Block 34.xlsx")
+    complex_result = xlsx_extract.pre_process_xlsx(complex_df, file_id="Block 34")
+
+    assert complex_result["notes"].dropna().unique().tolist() == ['Note copied from Copies 1: All marked Secret', 'Note copied from Copies 3: [S=Secret]', 'Note copied from Copies 2: S = Secret']
