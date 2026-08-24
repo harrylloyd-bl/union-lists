@@ -567,7 +567,7 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str) -> list[dict[str, 
     entry_template: dict[str, str | None | bool | float | int] = {
         "Source File": source,
         "Series Title": f"Survey of India India and Adjacent Countries {scale} Series",
-        "Scale": {"Quarter Inch": "1:253,440", "Half Inch": "1:126,720", "One Inch": "63,360"}[scale],
+        "Scale": {"Quarter Inch": "1:253,440", "Half Inch": "1:126,720", "One Inch": "1:63,360"}[scale],
         "Published": None,
         "Location Room": "UGF",
         "Location Section": None,  # dict lookup with external resource, out of scope currently, see Issue #2
@@ -855,7 +855,7 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
     missed_long_w_refs = {ior for ior in output_iors - input_iors if "/W/" in ior}
     #  ref_re above is too simple to catch long W references, so remove these from the output side
     output_iors = output_iors - missed_long_w_refs
-    if output["Scale"].unique()[0] != "63,360":
+    if output["Scale"].unique()[0] == "1:126,720":
         assert input_iors == output_iors
 
     assert np.array_equal(output["Parent Reference"].dropna().str.count("/").unique(), [2])
