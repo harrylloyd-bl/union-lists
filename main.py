@@ -28,6 +28,8 @@ def main():
     all_csv_files = glob.glob(f"{INTERIM_DATA_DIR}/{SCALE}/*.csv")
     if SCALE == "One Inch":
         csv_files = [x for x in all_csv_files if "BLOCK" not in x.upper()]
+    else:
+        csv_files = all_csv_files
 
     scale_docs = {"Quarter Inch": 44, "Half Inch": 34, "One Inch": 40}
     assert len(csv_files) == scale_docs[SCALE]
@@ -107,8 +109,7 @@ def main():
     else:
         output_df = docx_output_df
     
-    # output_df.to_csv(f"{PROCESSED_DATA_DIR}/v0.9_{SCALE.lower().replace(' ', '_')}_sample.csv", encoding="utf-8-sig", index=False)
-    output_df.to_excel(f"{PROCESSED_DATA_DIR}/v0.10_{SCALE.lower().replace(' ', '_')}_sample.xlsx", index=False)
+    output_df.to_excel(f"{PROCESSED_DATA_DIR}/v0.1.1_{SCALE.replace(' ', '_')}_References.xlsx", index=False)
 
 
 if __name__ == "__main__":
