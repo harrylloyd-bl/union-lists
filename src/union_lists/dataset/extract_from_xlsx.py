@@ -5,6 +5,7 @@ import re
 
 import pandas as pd
 from pandas.api.types import is_string_dtype
+from tqdm import tqdm
 
 from union_lists.config import RAW_DATA_DIR, INTERIM_DATA_DIR
 
@@ -366,7 +367,7 @@ def pre_process_xlsx(df: pd.DataFrame, file_id: str) -> pd.DataFrame:
     # sheet_id_re = re.compile(r"\d{1,2}$")
     # date_re = re.compile(r"\d{4,4}$")
     # drawer_re = re.compile(r"[0-9/]+$")
-    # shelfmark_re = re.compile(r"[xXD0-9\[\]]+$")
+    # shelfmark_re = re.compile(r"[XD0-9\[\]]+$")
     grid_color_re = re.compile(r"x$")
     copy_re = re.compile(r"[\d/]{1,3}$|S$")
 
@@ -432,10 +433,112 @@ def annotate_uncertain_dates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def verify_combined_output(combined_df: pd.DataFrame) -> None:
+    """Apply a series of tests to verify the contents of the combined pre-processed xlsx output
+
+    Args:
+        combined_df (pd.DataFrame): Combined df of all xlsx outputs
+    """
+    block_letter_re = re.compile("[A-P]$")
+    sheet_id_re = re.compile(r"\d{1,2}$")
+    date_re = re.compile(r"\d{4,4}$")
+    drawer_re = re.compile(r"[0-9/]+$")
+    shelfmark_re = re.compile(r"[XD0-9\[\]/]+$")
+    grid_color_re = re.compile(r"x$")
+    copy_re = re.compile(r"[\d/]{1,3}$|S$")
+
+    #### Check all block letters and sheet IDs are filled
+    assert combined_df["block_letter"].count() == len(combined_df)
+    assert combined_df["sheet_id"].count() == len(combined_df)
+
+    #### Check block letters and sheet IDs match regex
+    assert combined_df.dropna(subset="block_letter")[combined_df["block_letter"].dropna().apply(lambda x: block_letter_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="sheet_id")[combined_df["sheet_id"].dropna().astype(str).apply(lambda x: sheet_id_re.match(x)).isna()].empty
+
+    #### Check dates match regex
+    non_dates = combined_df.dropna(subset="date_1")[combined_df["date_1"].astype(str).dropna().apply(lambda x: date_re.match(x)).isna()]
+    non_dates[~non_dates["date_1"].astype(str).str.upper().str.contains("EE")]
+
+    non_dates = combined_df.dropna(subset="date_2")[combined_df["date_2"].astype(str).dropna().apply(lambda x: date_re.match(x)).isna()]
+    assert non_dates[~non_dates["date_2"].astype(str).str.upper().str.contains("EE")].empty
+
+    non_dates = combined_df.dropna(subset="date_3")[combined_df["date_3"].astype(str).dropna().apply(lambda x: date_re.match(x)).isna()]
+    assert non_dates[~non_dates["date_3"].astype(str).str.upper().str.contains("EE")].empty
+
+    non_dates = combined_df.dropna(subset="date_4")[combined_df["date_4"].astype(str).dropna().apply(lambda x: date_re.match(x)).isna()]
+    assert non_dates[~non_dates["date_4"].astype(str).str.upper().str.contains("EE")].empty
+
+    non_dates = combined_df.dropna(subset="date_5")[combined_df["date_5"].astype(str).dropna().apply(lambda x: date_re.match(x)).isna()]
+    assert non_dates[~non_dates["date_5"].astype(str).str.upper().str.contains("EE")].empty
+
+    non_dates = combined_df.dropna(subset="date_6")[combined_df["date_6"].astype(str).dropna().apply(lambda x: date_re.match(x)).isna()]
+    assert non_dates[~non_dates["date_6"].astype(str).str.upper().str.contains("EE")].empty
+
+
+    #### Check drawer matches regex
+    assert combined_df["drawer"].dropna()[~combined_df["drawer"].dropna().astype(str).str.contains(drawer_re, regex=True)].empty
+
+    #### Check shelfmarks match regex
+    assert combined_df.dropna(subset="shelfmark")[combined_df["shelfmark"].astype(str).dropna().apply(lambda x: shelfmark_re.match(x)).isna()].empty
+
+    #### check coloured match regex
+    assert combined_df.dropna(subset="coloured_1").loc[:,:"coloured_1"][combined_df["coloured_1"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="coloured_2").loc[:,:"coloured_2"][combined_df["coloured_2"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="coloured_3").loc[:,:"coloured_3"][combined_df["coloured_3"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="coloured_4").loc[:,:"coloured_4"][combined_df["coloured_4"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="coloured_5").loc[:,:"coloured_5"][combined_df["coloured_5"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="coloured_6").loc[:,:"coloured_6"][combined_df["coloured_6"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+
+    #### check gridded match regex
+    assert combined_df.dropna(subset="gridded_1").loc[:,:"gridded_1"][combined_df["gridded_1"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="gridded_2").loc[:,:"gridded_2"][combined_df["gridded_2"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="gridded_3").loc[:,:"gridded_3"][combined_df["gridded_3"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="gridded_4").loc[:,:"gridded_4"][combined_df["gridded_4"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="gridded_5").loc[:,:"gridded_5"][combined_df["gridded_5"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="gridded_6").loc[:,:"gridded_6"][combined_df["gridded_6"].astype(str).dropna().apply(lambda x: grid_color_re.match(x)).isna()].empty
+
+    #### check copies match regex
+    assert combined_df.dropna(subset="copies_1").loc[:,:"copies_1"][combined_df["copies_1"].astype(str).dropna().apply(lambda x: copy_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="copies_2").loc[:,:"copies_2"][combined_df["copies_2"].astype(str).dropna().apply(lambda x: copy_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="copies_3").loc[:,:"copies_3"][combined_df["copies_3"].astype(str).dropna().apply(lambda x: copy_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="copies_4").loc[:,:"copies_4"][combined_df["copies_4"].astype(str).dropna().apply(lambda x: copy_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="copies_5").loc[:,:"copies_5"][combined_df["copies_5"].astype(str).dropna().apply(lambda x: copy_re.match(x)).isna()].empty
+    assert combined_df.dropna(subset="copies_6").loc[:,:"copies_6"][combined_df["copies_6"].astype(str).dropna().apply(lambda x: copy_re.match(x)).isna()].empty
+
+    #### check repmat
+    assert combined_df["repmat"].dropna().value_counts().loc["2 copies"] == 6
+    assert len(combined_df["repmat"].dropna().value_counts()) == 1
+
+    #### check See references in date_1 and date_2
+    ee_cells = {}
+    for c in combined_df.columns:
+        if is_string_dtype(combined_df[c]):
+            ee_cells[c] = combined_df[c][combined_df[c].str.lower().str.contains("ee")]
+
+    se_cells = {}
+    for c in combined_df.columns:
+        if is_string_dtype(combined_df[c]):
+            se_cells[c] = combined_df[c][combined_df[c].str.lower().str.contains("se")]
+
+    d1_ee = ee_cells["date_1"].str.lower().str.split().apply(lambda x: x[0]).unique().tolist()
+    d2_ee = ee_cells["date_2"].str.lower().str.split().apply(lambda x: x[0]).unique().tolist()
+
+    d1_se = se_cells["date_1"].str.lower().str.split().apply(lambda x: x[0]).unique().tolist()
+    d2_se = se_cells["date_2"].str.lower().str.split().apply(lambda x: x[0]).unique().tolist()
+
+    assert all(s.startswith("se") for s in d1_ee + d2_ee + d1_se + d2_se)
+
+
 if __name__ == "__main__":
     SCALE = "One Inch"
     xlsx_files = glob.glob(f"{RAW_DATA_DIR}/{SCALE}/*.xlsx")
     xlsx_files = [x for x in xlsx_files if "\\~" not in x and "(2)" not in x]
     dfs = {os.path.basename(x).split(".")[0]: pd.read_excel(x) for x in xlsx_files}
-    clean_dfs = {block: pre_process_xlsx(df, block) for block, df in dfs.items()}
+    clean_dfs = {}
+    for block, df in tqdm(dfs.items()):
+        clean_dfs[block] = pre_process_xlsx(df, block)
+        
     [df.to_csv(f"{INTERIM_DATA_DIR}/{SCALE}/{block}.csv", encoding="utf-8-sig", index=False) for block, df in clean_dfs.items()]
+
+    combined_df = pd.concat([df for df in clean_dfs.values()]).reset_index(drop=True)
+    verify_combined_output(combined_df)
