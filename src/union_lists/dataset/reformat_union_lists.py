@@ -9,12 +9,13 @@ import re
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from union_lists.config import *
 from union_lists.dataset.extract_from_doc import find_refs
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_extract.log", level=logging.INFO)
+# logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_reformat.log", level=logging.INFO)
 
 def fix_data_errors(input_df_dict: dict[str, pd.DataFrame]) -> None:
     """Manually fix some errors in the raw documents
@@ -529,26 +530,28 @@ def bin_date(date: str|int|float) -> str | None:
     Returns:
         str | None: The string time period the input date is in
     """
+    
     if type(date) == float:
-        date = int(date)
+        typed_date: int = int(date)
     elif type(date) == str:
         try:
-            date = int(date)
+            typed_date: int = int(date)
         except ValueError:
             return None
+    elif type(date) == int:
+        typed_date: int = int(date)
 
-    date = int(date)
-    if date > 1905:
+    if typed_date > 1905:
         time_period = "Post-1905"
-    elif 1885 < date < 1906:
+    elif 1885 < typed_date < 1906:
         time_period = "1886-1905"
-    elif date < 1886:
+    elif typed_date < 1886:
         time_period = "Pre-1886"
 
     return time_period
 
 
-def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.DataFrame) -> list[dict[str, str | None | bool | int]]:
+def process_xlsx_row(row: pd.Series, source: str, scale: str) -> list[dict[str, str | None | bool | int]]:
     """Process a row from a One Inch xlsx document
 
     Args:
@@ -616,13 +619,20 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.Da
         entry_template["Full Reference"] = "IOR/" + row.loc["shelfmark"] + f"/{bn}{bl}/{sid}"
     else:
         row.loc["shelfmark"] = ""
-        entry_template["Parent Reference"] = "No reference"
-        entry_template["Full Reference"] = "No reference"
+        entry_template["Parent Reference"] = "No shelfmark recorded"
+        entry_template["Full Reference"] = "No shelfmark recorded"
 
     entry_template["Repmat"] = row.loc["repmat"]
     entry_template["Notes"] = row.loc["notes"]
 
-    entry_template["Location Detail"] = int(row.loc["drawer"])
+    if pd.isna(row.loc["drawer"]):
+        drawer = None
+    elif type(row.loc["drawer"]) == str:
+        drawer = row.loc["drawer"]
+    else:
+        drawer = int(row.loc["drawer"])
+
+    entry_template["Location Detail"] = drawer
 
     # Related References
     dates = row.loc["date_1": "date_6"].dropna().to_list()
@@ -644,7 +654,7 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.Da
             try:
                 date = int(date)
             except ValueError:
-                continue
+                date = date
         elif type(date) == float:
             date = str(int(date))
     
@@ -667,7 +677,8 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.Da
 
         if references:
             other_refs = references.copy()
-            del other_refs[ref]
+            if ref in other_refs:
+                del other_refs[ref]
 
             for ref, ref_info in other_refs.items():
                 related_refs = f"{ref_info["Period"]} Related References"
@@ -679,12 +690,135 @@ def process_xlsx_row(row: pd.Series, source: str, scale: str, combined_df: pd.Da
     return entries
 
 
+def parse_see(idx, row, df_copy: pd.DataFrame) -> None:
+    """Parse a row of a dataframe, validating a 'See' ref in the Print Date column
+    Recognise and nicely format the See reference and copy back to the combined dataframe
+
+    Args:
+        row (pd.Series): A row of a dataframe as a series via DataFrame.apply
+        df_copy (pd.DataFrame): A copy of the combined dataframe to be iterated over, to avoid mutating with user defined functions gotcha
+
+    Raises:
+        ValueError: If there are no results for the see query in the combined dataframe
+
+    Returns:
+        None
+    """
+    date_str = row.loc["Print Date"]
+    see_re = re.compile(r"^see ?(block)? ?(?P<bn>\d{1,2})? ?(?P<bl>[a-z]) ?(?P<sid>\d{1,2}) ?(?P<date>[\d]{4,4})?$", flags=re.IGNORECASE)
+    
+    see_match = see_re.match(date_str)
+    if not see_match:
+        return date_str
+    else:
+        bn = see_match.group("bn")
+        bl = see_match.group("bl")
+        sid = see_match.group("sid")
+        date = see_match.group("date")
+
+    if date is None:
+        date = ""
+    date = date.strip()
+
+    if bn is None:
+        bn = row.loc["Post-1905 Block Number"]
+
+    bl, sid = bl.upper(), sid.upper()
+    validate_block_info(bn, bl, sid)
+
+    see_query = f"`Post-1905 Block Number` == '{bn}' and `Post-1905 Block Letter` == '{bl}' and `Post-1905 Sheet ID` == '{sid}' and `Location Detail` == {row.loc["Location Detail"]}"
+    see_lookup = df_copy.query(see_query)
+
+    if see_lookup.empty == 0:
+        logging.info(f"No results found for See query: {bn} {bl} {sid} Drawer {row.loc["Location Detail"]}; source row: {row.loc["Post-1905 Block Number"]} {row.loc["Post-1905 Block Letter"]} {row.loc["Post-1905 Sheet ID"]}")
+        pass
+    elif len(see_lookup["Print Date"].unique()) == 1:
+        if df_copy.loc[see_lookup.index[0], "Print Date"] != date:
+            try:
+                date = str(int(df_copy.loc[see_lookup.index[0], "Print Date"]))
+            except ValueError:
+                pass
+    elif len(see_lookup["Print Date"].unique()) > 1:
+        pass
+    
+    if date:
+        date = " " + date
+    
+    df_copy.loc[idx, "Print Date"] = f"See {bn} {bl}{sid}{date}"
+    return None
+
+
+def resolve_see_refs(combined_df: pd.DataFrame) -> pd.DataFrame:
+    """Resolve all 'See <row>' references in xlsx output
+
+    Args:
+        combined_df (pd.DataFrame): The combined df from all Block xlsx files
+
+    Raises:
+        ValueError: If combined_df has a duplicate index and may therefore return duplicate results
+
+    Returns:
+        pd.DataFrame: A copy of combined_df with all `See <row>` references neatly formatted with dates if possible
+    """
+    if combined_df.index.has_duplicates:
+        raise ValueError("Combined DataFrame for resolving See references has duplicates in index")
+    combined_copy = combined_df.copy()
+
+    for idx, row in tqdm(combined_df.iterrows(), total=len(combined_df)):
+        parse_see(idx=idx, row=row, df_copy=combined_copy)
+
+    return combined_copy
+
+
+def combine_doc_xlsx_outputs(doc_df: pd.DataFrame, xlsx_df: pd.DataFrame) -> pd.DataFrame:
+    if doc_df.empty:
+        return xlsx_df
+
+    if doc_df.index.has_duplicates:
+        raise ValueError("Document DataFrame has duplicates in index")
+
+    unrepresented_rows = []
+    for idx, row in tqdm(xlsx_df.iterrows(), total=len(xlsx_df)):
+        date = row.loc["Print Date"]
+        if "See" in date:
+            continue
+
+        bn, bl, sid =  row.loc["Post-1905 Block Number"], row.loc["Post-1905 Block Letter"], row.loc["Post-1905 Sheet ID"]
+        xlsx_query = f"`Post-1905 Block Number` == '{bn}' and `Post-1905 Block Letter` == '{bl}' and `Post-1905 Sheet ID` == '{sid}' and '{row.loc["Full Reference"]}' in `Full Reference` and `Print Date` == '{row.loc["Print Date"]}'"
+        query_idx = doc_df.query(xlsx_query).index
+        
+        if doc_df.query(xlsx_query).empty:
+            logging.info(f"Queried doc df for {xlsx_query} is empty.")
+            unrepresented_rows.append(idx)
+        elif len(query_idx) == 1:
+            # breakpoint()
+            doc_df.loc[query_idx, ["Location Detail", "Coloured", "Gridded", "Number of Copies", "Repmat"]] = row.loc[["Location Detail", "Coloured", "Gridded", "Number of Copies", "Repmat"]].values
+            if not pd.isna(row.loc['Notes']) and "xlsx source file" not in doc_df.loc[query_idx, "Notes"]:
+                doc_df.loc[query_idx, "Notes"] += f"\n\nNotes copied from xlsx source file\n{row.loc['Notes']}"
+            elif not pd.isna(row.loc['Notes']) and "xlsx source file" in doc_df.loc[query_idx, "Notes"]:
+                doc_df.loc[query_idx, "Notes"] += f"\n\n{row.loc['Notes']}"
+        else:
+            raise ValueError(f"Queried doc df for {xlsx_query} has multiple results.")
+
+    logging.info(f"{len(unrepresented_rows)} out of {len(xlsx_df)} unmatched with doc_df of len {len(doc_df)}")
+
+    doc_xlsx_combined_df = pd.concat([doc_df, xlsx_df.loc[unrepresented_rows]]).reset_index(drop=True)
+    doc_xlsx_combined_df["Post-1905 Block Number"] = doc_xlsx_combined_df["Post-1905 Block Number"].astype("Int64")
+    doc_xlsx_combined_df["Post-1905 Sheet ID"] = doc_xlsx_combined_df["Post-1905 Sheet ID"].astype("Int64")
+    doc_xlsx_combined_df["Coloured"] = doc_xlsx_combined_df["Coloured"].astype(pd.BooleanDtype())
+    doc_xlsx_combined_df["Gridded"] = doc_xlsx_combined_df["Gridded"].astype(pd.BooleanDtype())
+    doc_xlsx_combined_df["Number of Copies"] = doc_xlsx_combined_df["Number of Copies"].astype(pd.StringDtype(na_value=pd.NA))
+    doc_xlsx_combined_df["Repmat"] = doc_xlsx_combined_df["Repmat"].astype(pd.StringDtype(na_value=pd.NA))
+
+    return doc_xlsx_combined_df
+
+
 def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> None:
     """Apply a set of validation steps to an output dataframe
     These are a series of assert statements based on understanding of the input data
 
     Args:
-        output_df (pd.DataFrame): _description_
+        output_df (pd.DataFrame): Output dataframe to perform validation checks against
     """
     sources_by_scale = {
         "63,360": set(
@@ -722,7 +856,7 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
     if output["Scale"].unique()[0] != "63,360":
         assert input_iors == output_iors
 
-    assert np.array_equal(output["Parent Reference"].dropna().str.count("/").unique(), [2, 0, 1])
+    assert np.array_equal(output["Parent Reference"].dropna().str.count("/").unique(), [2])
 
     # all_xnums = input_dfs["38B"].astype(str).sum(axis=1).str.replace("  ", " ").apply(lambda x: set(ref_re.findall(x)))
     # related_lookup = defaultdict(set)
