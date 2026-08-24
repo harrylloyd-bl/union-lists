@@ -28,6 +28,16 @@ def test_find_refs():
 
 
 def test_extract_label_lines():
+    # TODO possible add test to understand behaviour for 34A @ loc[172, "Post-1905_2"], which is confounded by a misformatted reference
+
+    invert_ital_ref_table = Document("tests/62A.docx").tables[0]
+    invert_ital_ref_dict = {i: invert_ital_ref_table.column_cells(i) for i, _ in enumerate(invert_ital_ref_table.columns)}
+    invert_ital_ref_df = pd.DataFrame(invert_ital_ref_dict)
+
+    invert_ital_ref_result = extract.extract_label_lines(invert_ital_ref_df.iloc[54, 1].paragraphs)
+    invert_ital_ref_expected = 'X/9053/62D /1+ D/ 5  1924 /// ref\nUnited Provinces  only /// note'
+
+    assert invert_ital_ref_result == invert_ital_ref_expected
 
     false_trailing_ref_table = Document("tests/53A.docx").tables[0]
     false_trailing_ref_dict = {i: false_trailing_ref_table.column_cells(i) for i, _ in enumerate(false_trailing_ref_table.columns)}
@@ -106,15 +116,13 @@ def test_extract_label_lines():
     plus_cell_df = pd.DataFrame(plus_table_dict)
     
     plus_result = extract.extract_label_lines(plus_cell_df.iloc[17, 1].paragraphs)
-    plus_expected = 'X/9051/73L+P  1912 /// ref\nX/9051/73L+P+74I  1934 /// ref\nX/13104/73L+P+74I  1934/1942 /// ref'
-    # breakpoint()
+    plus_expected = 'X/9051/73L+P  1912 /// ref\npart extended east for coastal area /// note\nX/9051/73L+P+74I  1934 /// ref\nparts extended east and south for coastal area  /// note\nX/13104/73L+P+74I  1934/1942 /// ref\nparts extended east and south for coastal area /// note'
     assert plus_result == plus_expected
 
     multi_final_ref_doc_table = Document("tests/78C.docx").tables[0]
     multi_final_ref_table_dict = {i: multi_final_ref_doc_table.column_cells(i) for i, _ in enumerate(multi_final_ref_doc_table.columns)}
     multi_final_ref_df = pd.DataFrame(multi_final_ref_table_dict)
 
-    # breakpoint()
     multi_final_ref_result = extract.extract_label_lines(multi_final_ref_df.iloc[6, 1].paragraphs)
     multi_final_ref_expected = 'X/9051/78A+77D  1921 /// ref\nextended north for  Sikkim /// note\nX/9051/78A+77D  1923 /// ref\nextended north for  Sikkim /// note\nX/9051/78A  1937 /// ref\nW/LPS/21/N4/78A  1937 /// ref'
 
@@ -122,13 +130,12 @@ def test_extract_label_lines():
 
 
 def test_postcorrect_df():
-    file_id = "73C"
-    plus_doc_table = Document(f"tests/{file_id}.docx").tables[0]
-    plus_table_dict = {i: plus_doc_table.column_cells(i) for i, _ in enumerate(plus_doc_table.columns)}
+    file_id = "62A"
+    postcorr_doc_table = Document(f"tests/{file_id}.docx").tables[0]
+    postcorr_table_dict = {i: postcorr_doc_table.column_cells(i) for i, _ in enumerate(postcorr_doc_table.columns)}
     
-    plus_df, metadata = extract.clean_map_df(table_dict=plus_table_dict)
-    plus_df = extract.postcorrect_df(df=plus_df, file_id=file_id)
+    postcorr_df, metadata = extract.clean_map_df(table_dict=postcorr_table_dict)
+    postcorr_df = extract.postcorrect_df(df=postcorr_df, file_id=file_id)
 
-    # breakpoint()
-    plus_expected = 'X/9051/73L+P  1912 /// ref\npart extended east for coastal area /// note\nX/9051/73L+P+74I  1934 /// ref\nparts extended east and south for coastal area /// note\nX/13104/73L+P+74I  1934/1942 /// ref\nparts extended east and south for coastal area /// note'
-    assert plus_df.loc[11, "Post-1905_2"] == plus_expected
+    postcorr_expected = 'X/9053/62D/1+D/5  1924 /// ref\nUnited Provinces  only /// note'
+    assert postcorr_df.loc[48, "Post-1905_2"] == postcorr_expected

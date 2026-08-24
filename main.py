@@ -1,6 +1,8 @@
 from collections import Counter
 from copy import deepcopy
+from datetime import datetime
 import glob
+import logging
 import json
 import os
 import xml.etree.ElementTree as ET
@@ -11,14 +13,17 @@ from tqdm import tqdm
 import win32com.client as win32
 
 import union_lists.dataset.reformat_union_lists as data
-from union_lists.config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR
+from union_lists.config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR, LOGS_DIR
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_main.log", level=logging.INFO)
 
 def main():
     SCALE = "One Inch"
+    print(f"{SCALE}: Reformating tables to new data format")
     block_suffix = {"One Inch": "A", "Half Inch": "B", "Quarter Inch": "C"}[SCALE]
     csv_files = glob.glob(f"{INTERIM_DATA_DIR}/{SCALE}/*.csv")
-    scale_docs = {"Quarter Inch": 38, "Half Inch": 34, "One Inch": 40}
+    scale_docs = {"Quarter Inch": 44, "Half Inch": 34, "One Inch": 40}
     assert len(csv_files) == scale_docs[SCALE]
 
     input_dfs, metadatas = {}, {}
@@ -43,18 +48,25 @@ def main():
                 entry_df = pd.concat([pd.DataFrame(x, index=[0]) for x in entries]).reset_index(drop=True)
                 entry_dfs[file_id] = entry_df
     
-    for file_id, df in input_dfs.items():
-        if "Y" in file_id and df.columns.equals(pd.Index(["Post-1905_1", "metadata"])):
+    for file_id, df in input_dfs.items():            
+        if file_id in ["Y104 38 X9051.doc", "Y104 53 X9051.docx"] and df.columns.equals(pd.Index(["Post-1905_1", "metadata"])):
             target = file_id.split()[1]
             target_df = entry_dfs[target + f"{block_suffix}.doc"]
             [data.process_2col_row(row=row, source=file_id, target_df=target_df, scale=SCALE) for (_, row) in df.iterrows()]
 
-    output = pd.concat([df for df in entry_dfs.values()])
+    output_df = pd.concat([df for df in entry_dfs.values()])
 
-    # output.to_csv(f"{PROCESSED_DATA_DIR}/v0.7_{scale.lower().replace(' ', '_')}_sample.csv", encoding="utf-8-sig", index=False)
-    # output.to_excel(f"{PROCESSED_DATA_DIR}/v0.7_{scale.lower().replace(' ', '_')}_sample.xlsx", index=False)
+    for file_id, df in input_dfs.items():
+        if file_id in ["Y104RE~3.doc", "X13104.doc", "X13104 52to58.doc", "X9051_WORK_XLISTS.doc", "WLPS21N4 52to53.doc", "SIquarterX14092.doc"]:
+            target_df = output_df
+            if file_id == "X13104.doc":
+                df["metadata"] = df["metadata"].str.replace("I-", "I").str.replace("J-", "J")
+            [data.process_2col_row(row=row, source=file_id, target_df=target_df, scale=SCALE) for (_, row) in df.iterrows()]
 
-    data.validate_output(df_input=input_dfs, output=output)
+    output_df.to_csv(f"{PROCESSED_DATA_DIR}/v0.8_{SCALE.lower().replace(' ', '_')}_sample.csv", encoding="utf-8-sig", index=False)
+    output_df.to_excel(f"{PROCESSED_DATA_DIR}/v0.8_{SCALE.lower().replace(' ', '_')}_sample.xlsx", index=False)
+
+    data.validate_output(df_input=input_dfs, output=output_df)
 
 
 if __name__ == "__main__":

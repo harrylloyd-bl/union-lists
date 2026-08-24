@@ -15,8 +15,7 @@ from union_lists.config import *
 from union_lists.dataset.extract_from_doc import find_refs
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_main.log", level=logging.INFO)
-
+logging.basicConfig(filename=f"{LOGS_DIR}/{datetime.now().strftime("%Y%m%d_%H%M")}_extract.log", level=logging.INFO)
 
 def fix_data_errors(input_df_dict: dict[str, pd.DataFrame]) -> None:
     """Manually fix some errors in the raw documents
@@ -484,12 +483,22 @@ def process_2col_row(row: pd.Series, source: str, target_df: pd.DataFrame, scale
         
         block_info = row.loc["metadata"].split()[1]
 
-        if "+" in block_info:
-            parsed_block_infos = parse_plus_block_info(x_num=block_info, scale=scale)
-        elif len(block_info) == 3:
-            parsed_block_infos = [{"bn": block_info[:2], "bl": block_info[2], "sid": None}]
+        if scale == "Quarter Inch":
+            if "+" in block_info:
+                parsed_block_infos = parse_plus_block_info(x_num=block_info, scale=scale)
+            elif len(block_info) == 2:
+                parsed_block_infos = [{"bn": block_info[0], "bl": block_info[1], "sid": None}]
+            elif len(block_info) == 4:
+                parsed_block_infos = [{"bn": block_info[0:3], "bl": block_info[3], "sid": None}]
+            else:
+                parsed_block_infos = [{"bn": block_info[:2], "bl": block_info[2], "sid": None}]
         else:
-            parsed_block_infos = [{"bn": block_info.split("/")[0][:2], "bl": block_info.split("/")[0][2], "sid": block_info.split("/")[1]}]
+            if "+" in block_info:
+                parsed_block_infos = parse_plus_block_info(x_num=block_info, scale=scale)
+            elif len(block_info) == 3:
+                parsed_block_infos = [{"bn": block_info[:2], "bl": block_info[2], "sid": None}]
+            else:
+                parsed_block_infos = [{"bn": block_info.split("/")[0][:2], "bl": block_info.split("/")[0][2], "sid": block_info.split("/")[1]}]
         
         for pbi in parsed_block_infos:
             bn = pbi["bn"]
@@ -530,12 +539,18 @@ def validate_output(df_input: dict[str, pd.DataFrame], output: pd.DataFrame) -> 
         combined_input_text += df.sum().sum()
 
     # TODO check for W/ refs as well
-    ref_re = re.compile(r"X/\d{1,7}/[\d\w/+]{1,}(?=\s)")
+    ref_re = re.compile(r"(?<![NS])[XW]/\d{1,7}/[\d\w/+]{1,}(?=\s)")
     input_refs = ref_re.findall(combined_input_text)
     input_iors = set(["IOR/" + ref for ref in input_refs])
-    #  'IOR/X/9052/53M/SW' checked and removed as incorrect findall of IOR/X/9052/53M/SW+M/SE
-    input_iors = input_iors - {'IOR/X/9052/53M/SW'}
-    output_iors = set(output["Full Reference"].dropna())
+    #  IOR/X/9052/53M/SW checked and removed as incorrect findall of IOR/X/9052/53M/SW+M/SE
+    #  IOR/X/9051/38K checked and removed as incomplete reference to a One Inch 38K ref
+    #  IOR/X/2083/1 & /16 checked and removed as notes rather than references
+    #  IOR/X/9373/195/1904 checked and removed as misprint, corrected to X/9373/195 1904 in postcorrect_df
+    input_iors = input_iors - {'IOR/X/9052/53M/SW', 'IOR/X/9051/38K', 'IOR/X/2083/1', 'IOR/X/2083/16', 'IOR/X/9373/195/1904'}
+    output_iors = set(output["Full Reference"].dropna()) - {'IOR/X/9051/38K'}
+    missed_long_w_refs = {ior for ior in output_iors - input_iors if "/W/" in ior}
+    #  ref_re above is too simple to catch long W references, so remove these from the output side
+    output_iors = output_iors - missed_long_w_refs
     assert input_iors == output_iors
 
     assert np.array_equal(output["Parent Reference"].dropna().str.count("/").unique(), [2.0])
