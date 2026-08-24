@@ -108,7 +108,7 @@ def main():
         output_df = docx_output_df
     
     # output_df.to_csv(f"{PROCESSED_DATA_DIR}/v0.9_{SCALE.lower().replace(' ', '_')}_sample.csv", encoding="utf-8-sig", index=False)
-    output_df.to_excel(f"{PROCESSED_DATA_DIR}/v0.9_{SCALE.lower().replace(' ', '_')}_sample.xlsx", index=False)
+    output_df.to_excel(f"{PROCESSED_DATA_DIR}/v0.10_{SCALE.lower().replace(' ', '_')}_sample.xlsx", index=False)
 
 
 if __name__ == "__main__":
